@@ -28,7 +28,7 @@ select = [
     "ERA",
     "NPY",
 ]
-ignore = ["ANN101","ANN102","ANN002","ANN003","ANN401","D213","D203","D406","T201"]
+ignore = ["ANN101","ANN102","ANN002","ANN003","ANN401","D213","D203","D406","T201","D413"]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
