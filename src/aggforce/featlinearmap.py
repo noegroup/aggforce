@@ -345,7 +345,7 @@ def qp_feat_linear_map(
 
     feat_results = featurizer(xyz, config_mapping, constraints)
     feats, divs, names = [
-        feat_results[key] for key in [KNAME_FEATS, KNAME_DIVS, KNAME_NAMES]   # type: ignore
+        feat_results[key] for key in [KNAME_FEATS, KNAME_DIVS, KNAME_NAMES]  # type: ignore
     ]
 
     per_site_feat_coef = []

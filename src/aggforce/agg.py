@@ -50,9 +50,7 @@ def project_forces(
     xyz: Union[None, np.ndarray],
     forces: np.ndarray,
     config_mapping: LinearMap,
-    constrained_inds: Union[
-        Set[FrozenSet[int]], str, None
-    ] = PROJECT_FORCES_CNSTR_AUTO,
+    constrained_inds: Union[Set[FrozenSet[int]], str, None] = PROJECT_FORCES_CNSTR_AUTO,
     method: Callable[..., Callable] = linearmap.qp_linear_map,
     **kwargs,
 ) -> Dict[str, Any]:
