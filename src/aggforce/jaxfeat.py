@@ -1,6 +1,6 @@
 """JAX-based library for creating features for nonlinear map optimization."""
 
-from typing import Union, Tuple, Iterable, Callable
+from typing import Union, Tuple, Iterable, Callable, Final
 from functools import partial
 import jax.numpy as jnp
 import jax
@@ -10,7 +10,11 @@ from .linearmap import reduce_constraint_sets
 from .featlinearmap import id_feat
 from .map import LinearMap
 from .constfinder import Constraints
-from .featlinearmap import Features, FEATS_KEY, DIVS_KEY, NAMES_KEY
+from .featlinearmap import Features, KNAME_FEATS, KNAME_DIVS, KNAME_NAMES
+
+
+DIVMETHOD_REORDER: Final = "reorder"
+DIVMETHOD_BASIC: Final = "basic"
 
 
 def gb_feat(
@@ -24,7 +28,7 @@ def gb_feat(
     dist_power: float = 0.5,
     batch_size: Union[None, int] = None,
     lazy: bool = True,
-    div_method: str = "reorder",
+    div_method: str = DIVMETHOD_REORDER,
 ) -> Features:
     """Featurize each site via its distance to a mapped site.
 
@@ -177,7 +181,7 @@ def gb_feat(
     else:
         divs = [divver(x) for x in range(cmap.n_cg_sites)]
 
-    return {FEATS_KEY: feats, DIVS_KEY: divs, NAMES_KEY: None}
+    return {KNAME_FEATS: feats, KNAME_DIVS: divs, KNAME_NAMES: None}
 
 
 def abatch(
@@ -590,7 +594,7 @@ def gb_subfeat_jac(
     channels: int,
     max_channels: int,
     smear_mat: Union[jax.Array, None] = None,
-    method: str = "reorder",
+    method: str = DIVMETHOD_REORDER,
     **kwargs,
 ) -> jax.Array:
     """Calculate per frame (collapsed) divergences for gb_subfeat.
@@ -642,7 +646,7 @@ def gb_subfeat_jac(
     jax.Array of shape (n_frames, n_features, n_dims=3) containing the per
     frame Jacobian values summed over the fine grained particles.
     """
-    if method == "basic":
+    if method == DIVMETHOD_BASIC:
         # collapse=True-> sums features over all atoms and frames to that
         # jacobian calculation avoids trivial zero entries.
         def to_jac(x: jax.Array) -> jax.Array:
@@ -661,7 +665,7 @@ def gb_subfeat_jac(
         traced_jac = jac.sum(axis=(2,))
         reshaped_jac = jnp.swapaxes(traced_jac, 0, 1)
         return reshaped_jac
-    elif method == "reorder":
+    elif method == DIVMETHOD_REORDER:
 
         def to_jac(x: jax.Array) -> jax.Array:
             return gb_subfeat(

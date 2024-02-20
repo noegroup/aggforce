@@ -42,9 +42,9 @@ from .constfinder import Constraints
 # This defines featurizers and their output via types.
 
 # featurizers output a dictionary with these keys.
-FEATS_KEY: Final = "feats"
-DIVS_KEY: Final = "divs"
-NAMES_KEY: Final = "names"
+KNAME_FEATS: Final = "feats"
+KNAME_DIVS: Final = "divs"
+KNAME_NAMES: Final = "names"
 # we also have to spell these literals out below because of mypy limits.
 Features = TypedDict(
     "Features",
@@ -96,7 +96,7 @@ class FeatZipper:
     """
 
     # these keys provide understanding into the feature dictionary format
-    generator_keys = frozenset([FEATS_KEY, DIVS_KEY])
+    generator_keys = frozenset([KNAME_FEATS, KNAME_DIVS])
     name_key = "names"
 
     # joiners has the particular functions for combining arrays from each
@@ -106,8 +106,8 @@ class FeatZipper:
     # members cannot be static methods and in this dictionary, so they are
     # lambdas.
     joiners: ClassVar = {
-        FEATS_KEY: lambda args: np.concatenate(args, axis=2),
-        DIVS_KEY: lambda args: np.concatenate(args, axis=1),
+        KNAME_FEATS: lambda args: np.concatenate(args, axis=2),
+        KNAME_DIVS: lambda args: np.concatenate(args, axis=1),
     }
 
     def __init__(self, content: List[GeneralizedFeatures]) -> None:
@@ -133,7 +133,7 @@ class FeatZipper:
         -------
         Frozenset of all feasible keys.
         """
-        return self.generator_keys.union(frozenset([NAMES_KEY]))
+        return self.generator_keys.union(frozenset([KNAME_NAMES]))
 
     def reset(self, content: Iterable[GeneralizedFeatures]) -> None:
         r"""Prepare internal state.
@@ -209,7 +209,7 @@ class FeatZipper:
         """
         if key in self.generator_keys:
             return self._makegenerator(key)
-        if key == NAMES_KEY:
+        if key == KNAME_NAMES:
             return self.names
         raise KeyError("Invalid key; valid keys are {}".format(self.keys()))
 
@@ -344,7 +344,9 @@ def qp_feat_linear_map(
         constraints = set()
 
     feat_results = featurizer(xyz, config_mapping, constraints)
-    feats, divs, names = [feat_results[key] for key in [FEATS_KEY, DIVS_KEY, NAMES_KEY]]  # type: ignore
+    feats, divs, names = [
+        feat_results[key] for key in [KNAME_FEATS, KNAME_DIVS, KNAME_NAMES]   # type: ignore
+    ]
 
     per_site_feat_coef = []
     for ind, (feat, div) in enumerate(zip(feats, divs)):
