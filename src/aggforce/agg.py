@@ -24,6 +24,7 @@ from typing import (
     Tuple,
     Mapping,
     TypeVar,
+    Final,
 )
 from gc import collect
 from itertools import product
@@ -33,13 +34,25 @@ from . import constfinder
 from .map import LinearMap
 
 
+PROJECT_FORCES_CNSTR_AUTO: Final = "auto"
+
+SCORES_KNAME: Final = "scores"
+SDS_KNAME: Final = "sds"
+NRUNS_KNAME: Final = "n_runs"
+
+PROJFORCE_KNAME: Final = "projected_forces"
+FMAP_KNAME: Final = "map"
+RESIDUAL_KNAME: Final = "residual"
+CONSTRAINTS_KNAME: Final = "constraints"
+
+
 def project_forces(
     xyz: Union[None, np.ndarray],
     forces: np.ndarray,
     config_mapping: LinearMap,
-    constrained_inds: Union[Set[FrozenSet[int]], str, None] = "auto",
+    constrained_inds: Union[Set[FrozenSet[int]], str, None] = PROJECT_FORCES_CNSTR_AUTO,
     method: Callable[..., Callable] = linearmap.qp_linear_map,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, Any]:
     r"""Produce optimized force map.
 
@@ -88,25 +101,38 @@ def project_forces(
         constraints =
             Set of frozensets characterizing the molecular constraints on the
             system. Useful if constrained_inds is set to 'auto'.
+
+    Notes:
+    -----
+    The strings used as keys in the output dictionary are source from the following
+    submodule variables:
+        PROJFORCE_KNAME
+        MAP_KNAME
+        RESIDUAL_KNAME
+        CONSTRAINTS_KNAME
+
     """
-    if constrained_inds == "auto":
+    if constrained_inds == PROJECT_FORCES_CNSTR_AUTO:
         if isinstance(xyz, np.ndarray):
             constrained_inds = constfinder.guess_pairwise_constraints(xyz)
         else:
-            raise ValueError("If constrained_inds is 'auto', xyz cannot be None.")
+            raise ValueError(
+                f"If constrained_inds is {PROJECT_FORCES_CNSTR_AUTO}, "
+                "xyz cannot be None."
+            )
     force_map: Callable = method(
         xyz=xyz,
         config_mapping=config_mapping,
         forces=forces,
         constraints=constrained_inds,
-        **kwargs
+        **kwargs,
     )
     mapped_forces = force_map(points=forces, copoints=xyz)
     to_return = {}
-    to_return.update({"projected_forces": mapped_forces})
-    to_return.update({"map": force_map})
-    to_return.update({"residual": force_smoothness(mapped_forces)})
-    to_return.update({"constraints": constrained_inds})
+    to_return.update({PROJFORCE_KNAME: mapped_forces})
+    to_return.update({FMAP_KNAME: force_map})
+    to_return.update({RESIDUAL_KNAME: force_smoothness(mapped_forces)})
+    to_return.update({CONSTRAINTS_KNAME: constrained_inds})
     return to_return
 
 
@@ -118,7 +144,7 @@ def project_forces_grid_cv(
     forces: np.ndarray,
     xyz: Union[np.ndarray, None] = None,
     n_folds: int = 5,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, Dict[NamedTuple, T]]:
     """Cross validation over project_forces using a grid of parameters.
 
@@ -169,7 +195,11 @@ def project_forces_grid_cv(
         compl_chunked_frame_inds.append(np.concatenate(outside_chunks))
 
     procced_cv_args = process_cvargs(cv_arg_dict)
-    cv_results: Dict[str, Dict[Any, Any]] = {"scores": {}, "sds": {}, "n_runs": {}}
+    cv_results: Dict[str, Dict[Any, Any]] = {
+        SCORES_KNAME: {},
+        SDS_KNAME: {},
+        NRUNS_KNAME: {},
+    }
     # iterate over values of parameter
     for cv_arg_label, cv_arg_dict in procced_cv_args:
         cv_fold_scores = []
@@ -186,7 +216,7 @@ def project_forces_grid_cv(
             try:
                 trained_map = project_forces(
                     xyz=train_xyz, forces=train_forces, **combined_kwargs
-                )["map"]
+                )[FMAP_KNAME]
                 # make validation data
                 val_forces = forces[val_inds]
                 if xyz is None:
@@ -201,9 +231,9 @@ def project_forces_grid_cv(
             except ValueError as e:
                 print(e)
             collect()
-        cv_results["scores"].update({cv_arg_label: mean(cv_fold_scores)})
-        cv_results["sds"].update({cv_arg_label: sample_sd(cv_fold_scores)})
-        cv_results["n_runs"].update({cv_arg_label: len(cv_fold_scores)})
+        cv_results[SCORES_KNAME].update({cv_arg_label: mean(cv_fold_scores)})
+        cv_results[SDS_KNAME].update({cv_arg_label: sample_sd(cv_fold_scores)})
+        cv_results[NRUNS_KNAME].update({cv_arg_label: len(cv_fold_scores)})
     return cv_results
 
 
@@ -248,10 +278,10 @@ def process_cvargs(
     cross_values = product(*values)
     to_return = []
     # mypy doesn't like dynamic named tuples like this
-    C = NamedTuple("CVArgs", param_names)  # type: ignore [misc]
+    CVArgs = NamedTuple("CVArgs", param_names)  # type: ignore [misc]
     for v in cross_values:
         # mypy also has a bug for this named tuple usage
-        key = C(**dict(zip(param_names, v)))
+        key = CVArgs(**dict(zip(param_names, v)))
         sub_args = {}
         for name in param_names:
             sub_args.update({name: getattr(key, name)})
