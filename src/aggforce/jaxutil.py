@@ -1,3 +1,4 @@
+"""Provides basic jax tools."""
 import jax
 import jax.numpy as jnp
 
