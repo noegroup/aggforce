@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 
+
 @jax.jit
 def trjdot(points: jax.Array, factor: jax.Array) -> jax.Array:
     """Perform a JAX matrix product with mdtraj-style arrays and a matrix.
@@ -50,4 +51,3 @@ def trjdot(points: jax.Array, factor: jax.Array) -> jax.Array:
     if len(factor.shape) == 3:
         return jnp.einsum("...fd,...cf->...cd", points, factor, optimize="greedy")
     raise ValueError("Factor matrix is an incompatible shape.")
-
