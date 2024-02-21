@@ -99,7 +99,7 @@ class AugmentedTrajectory(Trajectory):
     r"""Trajectory where part of the state space is generated via a given algorithm.
 
     If we take an existing trajectory dataset of coordinates and forces, we can
-    add noise to the positions (more generally, stochastically augment them) to extend 
+    add noise to the positions (more generally, stochastically augment them) to extend
     the phase space. This procedure allows us to create additional force information.
 
     Assuming that the original trajectory can be characterized by stationary density
