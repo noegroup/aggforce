@@ -40,20 +40,23 @@ import mdtraj as md  # type: ignore [import-untyped]
 import pandas as pd  # type: ignore [import-untyped]
 from copy import copy
 
-# has high level routines for cross validation
-from aggforce import agg as ag
+# cross validation tools
+from aggforce.agg import project_forces_grid_cv
 
-# has code for defining linear maps
-from aggforce import linearmap as lm
+# tools for preparing map optimization call
+from aggforce import LinearMap, guess_pairwise_constraints
 
-# provides tools for detecting constraints from molecular trajectories
-from aggforce import constfinder as cf
+# tools for featurizing the system for nonlinear map creation
+from aggforce.qp import (
+    GeneralizedFeaturizer,
+    Multifeaturize,
+    qp_feat_linear_map,
+    id_feat,
+    gb_feat,
+)
 
-# has the routines for generating a map that is dependent on configuration
-from aggforce import featlinearmap as p
-
-# has the JAX'd featurization functions
-from aggforce import jaxfeat as jf
+# helper for making featurizers
+from aggforce.util import Curry
 
 # number of folds of cross validation to do
 NFOLDS = 5
@@ -102,7 +105,7 @@ def get_data() -> Tuple[np.ndarray, np.ndarray, md.Trajectory, float]:
     return (coords, forces, pdb, kbt)
 
 
-def gen_config_map(pdb: md.Trajectory, string: str) -> lm.LinearMap:
+def gen_config_map(pdb: md.Trajectory, string: str) -> LinearMap:
     """Create the configurational map.
 
     This is needed as it defines constraints which dictate which force maps are
@@ -131,7 +134,7 @@ def gen_config_map(pdb: md.Trajectory, string: str) -> lm.LinearMap:
     for ind, a in enumerate(atomlist):
         if re.search(string, str(a)):
             inds.append([ind])
-    return lm.LinearMap(inds, n_fg_sites=pdb.xyz.shape[1])
+    return LinearMap(inds, n_fg_sites=pdb.xyz.shape[1])
 
 
 # defines sane default parameters for the featurization function. These were
@@ -146,7 +149,7 @@ default_feat_args = {
 }
 
 
-def gen_feater(*args: Any, **kwargs: Any) -> p.GeneralizedFeaturizer:
+def gen_feater(*args: Any, **kwargs: Any) -> GeneralizedFeaturizer:
     """Create a composite featurization function.
 
     Resulting featurizer has both identity features and configurationally dependent
@@ -172,16 +175,16 @@ def gen_feater(*args: Any, **kwargs: Any) -> p.GeneralizedFeaturizer:
     # stores the provided arguments.  That callable object, when called,
     # evaluates the original function using the stored arguments. We use it to
     # set default options for our our featurizer.
-    f0 = p.Curry(jf.gb_feat, *args, **prod_kwargs)
+    f0 = Curry(gb_feat, *args, **prod_kwargs)
     # Multifeaturize takes a list of featurizers and returns a featurizer that
     # combines their output.
     # id_feat is the featurizer that produces a one-hot vector for each atom
     # that roughly encodes the index of that atom (constraints make it more
     # complicated).
-    return p.Multifeaturize([p.id_feat, f0])  # type: ignore [list-item]
+    return Multifeaturize([id_feat, f0])  # type: ignore [list-item]
 
 
-def gen_feater_grid(**kwargs: Any) -> List[p.GeneralizedFeaturizer]:
+def gen_feater_grid(**kwargs: Any) -> List[GeneralizedFeaturizer]:
     """Create a list of featurization functions which have preset parameters.
 
     These parameters are chosen as all possible combinations of the arguments.
@@ -342,7 +345,7 @@ def main() -> None:
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     # before we run our cross validation over various possible hyperparameters
     # of the configurationally dependent map, we generate a optimized but static
@@ -364,18 +367,18 @@ def main() -> None:
     # note that we could instead call qp_linear_map and get effectively the same
     # reference value and force map.
 
-    control_featted_results = ag.project_forces_grid_cv(
+    control_featted_results = project_forces_grid_cv(
         xyz=coords,
         forces=forces,
         config_mapping=cmap,
         constrained_inds=constraints,
-        method=p.qp_feat_linear_map,
+        method=qp_feat_linear_map,
         # cv_arg_dict contains the parameters we will scan various arguments
         # over. Here, we just use a single l2 value, so it only "scans" over a
         # single value.
         cv_arg_dict={"l2_regularization": [1e3]},
         # passing in the one-hot features that don't depend on configuration
-        featurizer=p.id_feat,
+        featurizer=id_feat,
         kbt=kbt,
         n_folds=NFOLDS,
     )
@@ -405,14 +408,14 @@ def main() -> None:
     # we then combine the l2_regs and featurizer lists into a single dictionary.
     # This is that is passed to the cross validation function, which will scan
     # over each combination from the two list entries
-    cv_grid_basis: Dict[str, Union[List[p.GeneralizedFeaturizer], List[float]]] = {
+    cv_grid_basis: Dict[str, Union[List[GeneralizedFeaturizer], List[float]]] = {
         "featurizer": featurizers,
         "l2_regularization": l2_regs,
     }
 
     # this is the call that actually does the cross validation over the possible
     # configurationally dependent map optimizations.
-    featted_results: Dict[str, Dict[NamedTuple, Any]] = ag.project_forces_grid_cv(
+    featted_results: Dict[str, Dict[NamedTuple, Any]] = project_forces_grid_cv(
         cv_arg_dict=cv_grid_basis,
         forces=forces,
         xyz=coords,
@@ -422,7 +425,7 @@ def main() -> None:
         # again, we use our configurationally dependent method, but unlike
         # before our features do changes as a function of configuration, so our
         # force map will be configurationally dependent
-        method=p.qp_feat_linear_map,
+        method=qp_feat_linear_map,
         # passing in the various featurization functions and l2_regs to scan
         # over
         kbt=kbt,

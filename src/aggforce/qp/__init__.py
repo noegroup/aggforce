@@ -10,8 +10,9 @@ from .basicagg import constraint_aware_uni_map
 from .featlinearmap import (
     FeatZipper,
     Multifeaturize,
-    qp_feat_linear_map,
     GeneralizedFeatures,
+    GeneralizedFeaturizer,
+    qp_feat_linear_map,
     id_feat,
 )
 
