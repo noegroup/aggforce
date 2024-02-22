@@ -368,7 +368,7 @@ def main() -> None:
     # reference value and force map.
 
     control_featted_results = project_forces_grid_cv(
-        xyz=coords,
+        coords=coords,
         forces=forces,
         config_mapping=cmap,
         constrained_inds=constraints,
@@ -418,7 +418,7 @@ def main() -> None:
     featted_results: Dict[str, Dict[NamedTuple, Any]] = project_forces_grid_cv(
         cv_arg_dict=cv_grid_basis,
         forces=forces,
-        xyz=coords,
+        coords=coords,
         n_folds=NFOLDS,
         config_mapping=cmap,
         constrained_inds=constraints,
