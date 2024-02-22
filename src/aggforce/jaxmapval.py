@@ -21,7 +21,8 @@ import numpy as np
 import numpy.random as r
 import jax
 from .agg import force_smoothness
-from .jaxfeat import distances, clipped_gauss
+from .jaxutil import distances
+from .qp.jaxfeat import clipped_gauss
 
 ArrayT = TypeVar("ArrayT", bound=Union[jax.Array, np.ndarray])
 

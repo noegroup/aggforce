@@ -42,9 +42,13 @@ import numpy as np
 import numpy.random as r
 import mdtraj as md  # type: ignore [import-untyped]
 import pytest
-from aggforce import agg as ag
-from aggforce import linearmap as lm
-from aggforce import constfinder as cf
+from aggforce import (
+    guess_pairwise_constraints,
+    LinearMap,
+    project_forces,
+    constraint_aware_uni_map,
+)
+from aggforce.agg import TMAP_KNAME
 
 
 # this seeds some portions of the randomness of these tests, but not be
@@ -93,7 +97,7 @@ def get_data() -> Tuple[np.ndarray, np.ndarray, md.Trajectory, float]:
     return (coords, forces, pdb, kbt)
 
 
-def gen_config_map(pdb: md.Trajectory, string: str = "CA$") -> lm.LinearMap:
+def gen_config_map(pdb: md.Trajectory, string: str = "CA$") -> LinearMap:
     r"""Create the configurational map.
 
     This is needed as it defines constraints which dictate which force maps are
@@ -122,7 +126,7 @@ def gen_config_map(pdb: md.Trajectory, string: str = "CA$") -> lm.LinearMap:
     for ind, a in enumerate(atomlist):
         if re.search(string, str(a)):
             inds.append([ind])
-    return lm.LinearMap(inds, n_fg_sites=pdb.xyz.shape[1])
+    return LinearMap(inds, n_fg_sites=pdb.xyz.shape[1])
 
 
 def test_cln025_basic_agg_forces_against_ref() -> None:
@@ -135,21 +139,22 @@ def test_cln025_basic_agg_forces_against_ref() -> None:
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     # make force map
-    basic_results = ag.project_forces(
-        xyz=coords,
+    basic_results = project_forces(
+        coords=coords,
         forces=forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
-        method=lm.constraint_aware_uni_map,
+        method=constraint_aware_uni_map,
     )
+    force_map = basic_results[TMAP_KNAME].force_map
 
     location = Path(__file__).parent
     mapfile = str(location / "data/cln_basic_force_mat.txt")
     ref = np.loadtxt(mapfile)
-    assert ((basic_results["map"].standard_matrix - ref) ** 2).sum() < 1e-5
+    assert ((force_map.standard_matrix - ref) ** 2).sum() < 1e-5
 
 
 def test_cln025_opt_agg_forces_against_ref() -> None:
@@ -162,21 +167,22 @@ def test_cln025_opt_agg_forces_against_ref() -> None:
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     # make force map
-    optim_results = ag.project_forces(
-        xyz=coords,
+    optim_results = project_forces(
+        coords=coords,
         forces=forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
         l2_regularization=1,
     )
+    force_map = optim_results[TMAP_KNAME].force_map
 
     location = Path(__file__).parent
     mapfile = str(location / "data/cln_opt_force_mat.txt")
     ref = np.loadtxt(mapfile)
-    assert ((optim_results["map"].standard_matrix - ref) ** 2).mean() < 1e-3
+    assert ((force_map.standard_matrix - ref) ** 2).mean() < 1e-3
 
 
 @pytest.mark.jax
@@ -222,7 +228,7 @@ def test_cln025_opt_basic_rsqpg_mscg_ip(seed: int = rseed) -> None:
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     train_coords = coords[:500]
     test_coords = coords[500:]
@@ -230,42 +236,45 @@ def test_cln025_opt_basic_rsqpg_mscg_ip(seed: int = rseed) -> None:
     train_forces = forces[:500]
     test_forces = forces[500:]
 
-    basic_results = ag.project_forces(
-        xyz=train_coords,
+    basic_results = project_forces(
+        coords=train_coords,
         forces=train_forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
-        method=lm.constraint_aware_uni_map,
+        method=constraint_aware_uni_map,
     )
 
-    optim_results = ag.project_forces(
-        xyz=train_coords,
+    optim_results = project_forces(
+        coords=train_coords,
         forces=train_forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
         l2_regularization=1e3,
     )
 
-    optim_forces = optim_results["map"](test_forces)
-    basic_forces = basic_results["map"](test_forces)
-
-    cg_coords = cmap(test_coords)
-
     kwargs = {
-        "coords": cg_coords,
         "n_samples": 1000,
         "inner": 6.0,
         "outer": 12.0,
         "width": 0.5,
         "average": False,
     }
+    basic_coords, basic_forces = basic_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
 
     # mypy gets angry at this kwargs usage, we suppress
+    kwargs.update({"coords": basic_coords})
     basic_proj = mv.random_force_proj(  # type: ignore [call-overload]
         forces=basic_forces,
         randg=r.default_rng(seed=seed),
         **kwargs,
     )
+
+    optim_coords, optim_forces = optim_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
+    kwargs.update({"coords": optim_coords})
     optim_proj = mv.random_force_proj(  # type: ignore [call-overload]
         forces=optim_forces,
         randg=r.default_rng(seed=seed),
@@ -327,7 +336,7 @@ def test_cln025_opt_basic_rsqpg_offset(seed: int = rseed) -> None:
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     train_coords = coords[:500]
     test_coords = coords[500:]
@@ -335,41 +344,44 @@ def test_cln025_opt_basic_rsqpg_offset(seed: int = rseed) -> None:
     train_forces = forces[:500]
     test_forces = forces[500:]
 
-    basic_results = ag.project_forces(
-        xyz=train_coords,
+    basic_results = project_forces(
+        coords=train_coords,
         forces=train_forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
-        method=lm.constraint_aware_uni_map,
+        method=constraint_aware_uni_map,
     )
 
-    optim_results = ag.project_forces(
-        xyz=train_coords,
+    optim_results = project_forces(
+        coords=train_coords,
         forces=train_forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
         l2_regularization=1e3,
     )
 
-    optim_forces = optim_results["map"](test_forces)
-    basic_forces = basic_results["map"](test_forces)
-
-    cg_coords = cmap(test_coords)
-
     kwargs = {
-        "coords": cg_coords,
         "n_samples": 1000,
         "inner": 6.0,
         "outer": 12.0,
         "width": 0.5,
         "average": False,
     }
+    basic_coords, basic_forces = basic_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
 
+    kwargs.update({"coords": basic_coords})
     basic_proj = mv.random_residual_shift(  # type: ignore [call-overload]
         forces=basic_forces,
         randg=r.default_rng(seed=seed),
         **kwargs,
     )
+
+    optim_coords, optim_forces = optim_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
+    kwargs.update({"coords": optim_coords})
     optim_proj = mv.random_residual_shift(  # type: ignore [call-overload]
         forces=optim_forces,
         randg=r.default_rng(seed=seed),
@@ -403,14 +415,20 @@ def test_cln025_featopt_opt_rsqpg_mscg_ip(seed: int = rseed) -> None:
     marginal gain in the force score.
     """
     from aggforce import jaxmapval as mv
-    from aggforce import featlinearmap as p
-    from aggforce import jaxfeat as jf
+    from aggforce.qp import (
+        Multifeaturize,
+        gb_feat,
+        GeneralizedFeatures,
+        id_feat,
+        qp_feat_linear_map,
+    )
+    from aggforce.util import Curry
 
     coords, forces, pdb, kbt = get_data()
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     N_FRAMES: Final = 500
 
@@ -420,41 +438,39 @@ def test_cln025_featopt_opt_rsqpg_mscg_ip(seed: int = rseed) -> None:
     train_forces = forces[:N_FRAMES]
     test_forces = forces[N_FRAMES:]
 
-    basic_optim_results = ag.project_forces(
-        xyz=train_coords,
+    basic_optim_results = project_forces(
+        coords=train_coords,
         forces=train_forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
         l2_regularization=1e3,
     )
 
-    f0: p.Curry[p.GeneralizedFeatures] = p.Curry(
-        jf.gb_feat,
+    f0: Curry[GeneralizedFeatures] = Curry(
+        gb_feat,
         inner=0.0,
         outer=8.0,
         width=1.0,
         n_basis=4,
         lazy=True,
     )
-    comb_f = p.Multifeaturize([p.id_feat, f0])  # type: ignore [list-item]
-    optim_results = ag.project_forces(
-        xyz=coords,
+    comb_f = Multifeaturize([id_feat, f0])  # type: ignore [list-item]
+    optim_results = project_forces(
+        coords=coords,
         forces=forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
         featurizer=comb_f,
-        method=p.qp_feat_linear_map,
+        method=qp_feat_linear_map,
         kbt=kbt,
         l2_regularization=1e4,
     )
 
-    cg_coords = cmap(test_coords)
-
-    optim_forces = optim_results["map"](points=test_forces, copoints=test_coords)
-    basic_forces = basic_optim_results["map"](points=test_forces, copoints=test_coords)
+    basic_coords, basic_forces = basic_optim_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
 
     kwargs = {
-        "coords": cg_coords,
         "n_samples": 1000,
         "inner": 6.0,
         "outer": 12.0,
@@ -462,14 +478,21 @@ def test_cln025_featopt_opt_rsqpg_mscg_ip(seed: int = rseed) -> None:
         "average": False,
     }
 
-    # the kwargs usage here is incompatible with mypy inference
+    kwargs.update({"coords": basic_coords})
     basic_optim_proj = mv.random_force_proj(  # type: ignore [call-overload]
         forces=basic_forces,
         randg=r.default_rng(seed=seed),
         **kwargs,
     )
-    optim_proj = mv.random_force_proj(  # type: ignore [call-overload]
-        forces=optim_forces,
+
+    optim_coords, optim_forces = optim_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
+
+    kwargs.update({"coords": optim_coords})
+
+    optim_proj = mv.random_force_proj(
+        forces=optim_forces,  # type: ignore [call-overload]
         randg=r.default_rng(seed=seed),
         **kwargs,
     )
@@ -501,14 +524,19 @@ def test_cln025_featopt_opt_rsqpg_offset(seed: int = rseed) -> None:
     marginal gain in the force score.
     """
     from aggforce import jaxmapval as mv
-    from aggforce import featlinearmap as p
-    from aggforce import jaxfeat as jf
+    from aggforce.qp import (
+        Multifeaturize,
+        gb_feat,
+        id_feat,
+        qp_feat_linear_map,
+    )
+    from aggforce.util import Curry
 
     coords, forces, pdb, kbt = get_data()
     # cmap is the configurational coarse-grained map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
-    constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
     train_coords = coords[:500]
     test_coords = coords[500:]
@@ -516,42 +544,34 @@ def test_cln025_featopt_opt_rsqpg_offset(seed: int = rseed) -> None:
     train_forces = forces[:500]
     test_forces = forces[500:]
 
-    basic_opt_results = ag.project_forces(
-        xyz=train_coords,
+    basic_opt_results = project_forces(
+        coords=train_coords,
         forces=train_forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
-        method=lm.constraint_aware_uni_map,
+        method=constraint_aware_uni_map,
     )
-    f0 = p.Curry(
-        jf.gb_feat,
+    f0 = Curry(
+        gb_feat,
         inner=0.0,
         outer=8.0,
         width=1.0,
         n_basis=4,
         lazy=True,
     )
-    comb_f = p.Multifeaturize([p.id_feat, f0])  # type: ignore [list-item]
-    optim_results = ag.project_forces(
-        xyz=coords,
+    comb_f = Multifeaturize([id_feat, f0])  # type: ignore [list-item]
+    optim_results = project_forces(
+        coords=coords,
         forces=forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=constraints,
         featurizer=comb_f,
-        method=p.qp_feat_linear_map,
+        method=qp_feat_linear_map,
         kbt=kbt,
         l2_regularization=1e4,
     )
 
-    optim_forces = optim_results["map"](points=test_forces, copoints=test_coords)
-    basic_opt_forces = basic_opt_results["map"](
-        points=test_forces, copoints=test_coords
-    )
-
-    cg_coords = cmap(test_coords)
-
     kwargs = {
-        "coords": cg_coords,
         "n_samples": 1000,
         "inner": 6.0,
         "outer": 12.0,
@@ -559,11 +579,24 @@ def test_cln025_featopt_opt_rsqpg_offset(seed: int = rseed) -> None:
         "average": False,
     }
 
+    basic_opt_coords, basic_opt_forces = basic_opt_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
+
+    kwargs.update({"coords": basic_opt_coords})
+
     basic_opt_proj = mv.random_residual_shift(  # type: ignore [call-overload]
         forces=basic_opt_forces,
         randg=r.default_rng(seed=seed),
         **kwargs,
     )
+
+    optim_coords, optim_forces = optim_results[TMAP_KNAME].map_arrays(
+        test_coords, test_forces
+    )
+
+    kwargs.update({"coords": optim_coords})
+
     optim_proj = mv.random_residual_shift(  # type: ignore [call-overload]
         forces=optim_forces,
         randg=r.default_rng(seed=seed),

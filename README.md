@@ -27,9 +27,11 @@ constrained bonds from the trajectory, and then produce and apply an optimized
 force aggregation map to the trajectory.
 
 ```python
-from aggforce import linearmap as lm
-from aggforce import agg as ag
-from aggforce import constfinder as cf
+from aggforce import (LinearMap, 
+                      guess_pairwise_constraints, 
+		      project_forces, 
+		      constraint_aware_uni_map,
+		      )
 import numpy as np
 import re
 import mdtraj as md
@@ -55,23 +57,23 @@ for ind, a in enumerate(atomlist):
 
 # we create our configurational c-alpha map, which is needed to optimize
 # the force map
-cmap = lm.LinearMap(inds, n_fg_sites=coords.shape[1])
+cmap = LinearMap(inds, n_fg_sites=coords.shape[1])
 
 # detect which atoms have bond constraints based on statistics, only use 10
 # frames
-constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 # get force map which uniformly aggregates forces inside the cg bead and adds
 # other atoms to satisfy constraint rules
-basic_results = ag.project_forces(
+basic_results = project_forces(
     xyz=None,
     forces=forces,
     config_mapping=cmap,
     constrained_inds=constraints,
-    method=lm.constraint_aware_uni_map,
+    method=constraint_aware_uni_map,
 )
 # get _optimized_ force map which optimally weights atoms' forces for
 # aggregation
-optim_results = ag.project_forces(
+optim_results = project_forces(
     xyz=None, forces=forces, config_mapping=cmap, constrained_inds=constraints
 )
 
@@ -94,11 +96,14 @@ much more computationally expensive than the static mappings and has not yet
 been shown to produce significantly better results.
 
 ```python
-from aggforce import linearmap as lm
-from aggforce import agg as ag
-from aggforce import constfinder as cf
-from aggforce import featlinearmap as p
-from aggforce import jaxfeat as jf
+from aggforce import (LinearMap, 
+                      guess_pairwise_constraints, 
+		      project_forces, 
+		      constraint_aware_uni_map,
+		      qp_feat_linear_map,
+		      )
+from aggforce.util import Curry
+from aggforce.qp import Multifeaturize, gb_feat, id_feat
 import numpy as np
 import re
 import mdtraj as md
@@ -113,16 +118,16 @@ for ind, a in enumerate(atomlist):
     if re.search(r"CA$", str(a)):
         inds.append([ind])
 
-cmap = lm.LinearMap(inds, n_fg_sites=coords.shape[1])
-constraints = cf.guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+cmap = LinearMap(inds, n_fg_sites=coords.shape[1])
+constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
 # here we deviate from the previous procedure by defining our features
-config_feater = p.Curry(
-    jf.gb_feat, inner=0.0, outer=8.0, width=1.0, n_basis=7, batch_size=1000, lazy=True
+config_feater = Curry(
+    gb_feat, inner=0.0, outer=8.0, width=1.0, n_basis=7, batch_size=1000, lazy=True
 )
 # We combine our feater with id_feat, which assigns a one-hot id to 
-feater = p.Multifeaturize([p.id_feat, config_feater])
-optim_results = ag.project_forces(
+feater = Multifeaturize([p.id_feat, config_feater])
+optim_results = project_forces(
     xyz=coords,
     forces=forces,
     config_mapping=cmap,
@@ -130,7 +135,7 @@ optim_results = ag.project_forces(
     l2_regularization=1e3,
     kbt=0.6955215,
     featurizer=feater,
-    method=p.qp_feat_linear_map,
+    method=qp_feat_linear_map,
 )
 
 # look at examples directory for more details

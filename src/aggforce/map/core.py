@@ -4,28 +4,20 @@ These maps transform fine-grained points to coarse-grained points. Points may be
 positions or forces.
 """
 
-from abc import ABC, abstractmethod
+from typing import Union, List, Iterable, Callable, Final, Dict, Optional
 from itertools import combinations, product
 import numpy as np
-from typing import Union, Dict, List, Iterable, Callable, Final
+from ..util import trjdot
 
 
-class Map(ABC):
-    r"""Provides a abstract interface for maps.
+class _Taggable:
+    r"""Provides a basic interface for having tags.
 
-    Maps transform fine-grained to coarse-grained systems.
-
-    This is an abstract class. You must instantiate a subclass to use it. It
-    mostly useful to remind what content can be assumed to be present for a
-    Map object.
-
-    Note that Map objects act on systems of particles, each of which has n
-    dimensions (and not flat vectors).
+    Map optimizations sometimes need ways to annotate objects beyond what is
+    easily added as an attribute. Having a tags dictionary provides a place
+    where an arbitrary key-value (string:string) store can be described.
     """
 
-    n_dim: Final = 3
-
-    @abstractmethod
     def __init__(self, tags: Union[None, Dict[str, str]]) -> None:
         """Initialize map.
 
@@ -42,39 +34,8 @@ class Map(ABC):
         self.tags = tags
         return
 
-    @property
-    @abstractmethod
-    def n_cg_sites(self) -> int:
-        r"""Number of coarse-grained sites in output of map."""
 
-    @property
-    @abstractmethod
-    def n_fg_sites(self) -> int:
-        r"""Number of fine-grained sites in input to map."""
-
-    @abstractmethod
-    def __call__(
-        self, points: np.ndarray, copoints: Union[np.ndarray, None]
-    ) -> np.ndarray:
-        r"""Apply map to 3-dim array.
-
-        Arguments:
-        ---------
-        points (np.ndarray):
-            Assumed to be 3 dimensional of shape (n_steps,n_sites,n_dims).
-        copoints (np.ndarray or None):
-            Assumed to be 3 dimensional of shape (n_steps,n_sites,n_dims).
-            Some mapping methods require an additional set of points. For
-            example, positions must sometimes be given in order to apply a
-            position-dependent force map.
-
-        Returns:
-        -------
-        Mapped version of points as a three dimensional nd.numpy array.
-        """
-
-
-class LinearMap(Map):
+class LinearMap:
     r"""Unified interface for linear maps.
 
     Allows multiple different representations of the same map to be used.
@@ -92,11 +53,12 @@ class LinearMap(Map):
     (n_steps,n_sites,n_dims).
     """
 
+    n_dim: Final = 3
+
     def __init__(
         self,
         mapping: Union[List[List[int]], np.ndarray],
         n_fg_sites: Union[int, None] = None,
-        tags: Union[None, Dict[str, str]] = None,
     ) -> None:
         r"""Initialize LinearMapping from something describing a map.
 
@@ -131,9 +93,8 @@ class LinearMap(Map):
             Note that in the matrix case, we had to specify the normalization of
             the weights directly, as where in the list format it was done
             automatically.
-        """
-        super().__init__(tags)
 
+        """
         if isinstance(mapping, np.ndarray) and len(mapping.shape) == 2:
             if n_fg_sites is not None:
                 raise ValueError()
@@ -186,7 +147,6 @@ class LinearMap(Map):
     def __call__(
         self,
         points: np.ndarray,
-        copoints: Union[np.ndarray, None] = None,  # noqa: ARG002
     ) -> np.ndarray:
         r"""Apply map to a particular form of 3-dim array.
 
@@ -194,8 +154,6 @@ class LinearMap(Map):
         ---------
         points (np.ndarray):
             Assumed to be 3 dimensional of shape (n_steps,n_sites,n_dims).
-        copoints:
-            Ignored. Included for compatibility with parent class.
 
         Returns:
         -------
@@ -205,7 +163,7 @@ class LinearMap(Map):
         return trjdot(points, self.standard_matrix)
 
 
-class CLAMap(Map):
+class CLAMap(_Taggable):
     r"""Provide representation of a Co-Local Affine map.
 
     An affine transformation on x is Ax+b (a translation and linear
@@ -228,14 +186,16 @@ class CLAMap(Map):
     (unlike linear maps), and so does not have a standard_matrix property.
     """
 
+    n_dim: Final = 3
+
     def __init__(
         self,
         scale: Callable,
         trans: Callable,
         n_fg_sites: int,
-        n_cg_sites: Union[None, int] = None,
+        n_cg_sites: Optional[int] = None,
         zeroes_check: bool = True,
-        tags: Union[Dict, None] = None,
+        tags: Optional[Dict[str, str]] = None,
     ) -> None:
         r"""Initialize CLAMap object from functions scale (A) and trans (b).
 
@@ -263,10 +223,9 @@ class CLAMap(Map):
         tags (dictionary or None):
             Passed to Map init.
         """
-        super().__init__(tags)
-
+        super().__init__(tags=tags)
         if zeroes_check:
-            z_points = np.zeros((1, n_fg_sites, Map.n_dim))
+            z_points = np.zeros((1, n_fg_sites, self.n_dim))
             mapped = trjdot(z_points, scale(z_points)) + trans(z_points)
             if n_cg_sites is None:
                 n_cg_sites = mapped.shape[1]
@@ -279,10 +238,10 @@ class CLAMap(Map):
                     "If n_cg_sites is not set, zeroes_check must be truthy."
                 )
 
-        self._n_cg_sites = n_cg_sites
-        self._n_fg_sites = n_fg_sites
-        self.scale = scale
-        self.trans = trans
+        self._n_cg_sites: Final = n_cg_sites
+        self._n_fg_sites: Final = n_fg_sites
+        self.scale: Final = scale
+        self.trans: Final = trans
 
     @property
     def n_cg_sites(self) -> int:
@@ -315,55 +274,6 @@ class CLAMap(Map):
         scale = self.scale(copoints)
         trans = self.trans(copoints)
         return trjdot(points, scale) + trans
-
-
-def trjdot(points: np.ndarray, factor: np.ndarray) -> np.ndarray:
-    """Perform a matrix product with mdtraj-style arrays.
-
-    Arguments:
-    ---------
-    points (numpy.ndarray):
-        3-dim ndarray of shape (n_steps,n_sites,n_dims). To be mapped using
-        factor.
-    factor (numpy.ndarray):
-        2-dim ndarray of shape (n_cg_sites,n_sites) or 3-dim ndarray of shape
-        (n_steps,n_cg_sites,n_sites). Used to map points.
-
-    Returns:
-    -------
-    ndarray of shape (n_steps,n_cg_sites,n_dims) contained points mapped
-    with factor.
-
-    Notes:
-    -----
-    Functionality is most easily described via an example:
-        Molecular positions (and forces) are often represented as arrays of
-        shape (n_steps,n_sites,n_dims). Other places in the code we often
-        transform these arrays to a reduced (coarse-grained) resolution where
-        the output is (n_steps,n_cg_sites,n_dims).
-
-        (When linear) the relationship between the old (n_sites) and new
-        (n_cg_sites) resolution can be described as a matrix of size
-        (n_sites,n_cg_sites). This relationship is between sites, and is
-        broadcast across the other dimensions. Here, the sites are contained in
-        points, and the mapping relationship is in factor.
-
-        However, we cannot directly use dot products to apply such a matrix map.
-        This function applies this factor matrix as expected, in spirit of
-        (points * factor).
-
-        Additionally, if instead the matrix mapping changes at each frame of the
-        trajectory, this can be specified by providing a factor of shape
-        (n_steps,n_cg_sites,n_sites). This situation is determined by
-        considering the dimension of factor.
-    """
-    # optimal path found from external optimization with einsum_path
-    opt_path = ["einsum_path", (0, 1)]
-    if len(factor.shape) == 2:
-        return np.einsum("tfd,cf->tcd", points, factor, optimize=opt_path)
-    if len(factor.shape) == 3:
-        return np.einsum("...fd,...cf->...cd", points, factor, optimize=opt_path)
-    raise ValueError("Factor matrix is an incompatible shape.")
 
 
 def smear_map(

@@ -23,7 +23,6 @@ from typing import (
     ClassVar,
     Generator,
     Iterable,
-    Generic,
     TypeVar,
     overload,
     Literal,
@@ -35,9 +34,10 @@ import numpy as np
 from numpy.random import default_rng
 import scipy.sparse as ss  # type: ignore [import-untyped]
 from qpsolvers import solve_qp  # type: ignore [import-untyped]
-from .map import LinearMap, CLAMap
-from .linearmap import reduce_constraint_sets, SolverOptions, DEFAULT_SOLVER_OPTIONS
-from .constfinder import Constraints
+from ..map import CLAFTMap, LinearMap, CLAMap
+from ..constraints import Constraints, reduce_constraint_sets
+from ..trajectory import Trajectory
+from .qplinear import SolverOptions, DEFAULT_SOLVER_OPTIONS
 
 # This defines featurizers and their output via types.
 
@@ -247,9 +247,8 @@ class FeatZipper:
 
 
 def qp_feat_linear_map(
-    forces: np.ndarray,
-    xyz: np.ndarray,
-    config_mapping: LinearMap,
+    traj: Trajectory,
+    coord_map: LinearMap,
     featurizer: Featurizer,
     kbt: float,
     n_constraint_frames: int = 20,
@@ -257,27 +256,23 @@ def qp_feat_linear_map(
     sparse: bool = True,
     solver_args: SolverOptions = DEFAULT_SOLVER_OPTIONS,
     l2_regularization: float = 1e1,
-) -> CLAMap:
+) -> CLAFTMap:
     r"""Search for force map with lowest mean square norm of the mapped force.
 
     The produced map is linear with respect to user-provided features.
 
     Arguments:
     ---------
-    forces (numpy.ndarray):
-        Three dimensional array of shape (n_frames,n_sites,n_dims). Contains the
-        forces of the fine-grained sites as a function of time.
-    xyz (numpy.ndarray):
-        Three dimensional array of shape (n_frames,n_sites,n_dims). Contains the
-        configurational coordinates of the fine-grained sites as a function of time.
-    config_mapping (map.LinearMap):
+    traj (Trajectory):
+        Trajectory instance to extract coordinates and forces from.
+    coord_map (map.LinearMap):
         LinearMap object which characterizes configurational map.
     featurizer (callable):
         A callable for featurizing the system which uses the following as input:
             copoints (numpy.ndarray):
                 3-D of shape (n_frames,n_fg_sites,n_dims=3) containing the
                 copoints (positions) used for featurization
-            config_mapping (map.LinearMap instance)
+            coord_map (map.LinearMap instance)
                 configurational coarse-graining map of the system
             constraints (set of frozensets)
                 Characterizes molecular constraints in the system
@@ -338,12 +333,14 @@ def qp_feat_linear_map(
 
     Returns:
     -------
-    CLAMap object characterizing force mapping.
+    CLAFTMap instance characterizing the combination of the given coordinate
+    and derived force mapping.
+
     """
     if constraints is None:
         constraints = set()
 
-    feat_results = featurizer(xyz, config_mapping, constraints)
+    feat_results = featurizer(traj.coords, coord_map, constraints)
     feats, divs, names = [
         feat_results[key] for key in [KNAME_FEATS, KNAME_DIVS, KNAME_NAMES]  # type: ignore
     ]
@@ -354,14 +351,14 @@ def qp_feat_linear_map(
         constr_mult, constr_target = _constr_arrays(
             features=feat,
             cg_ind=ind,
-            config_mapping=config_mapping,
+            coord_map=coord_map,
             n_frames=n_constraint_frames,
             sparse=sparse,
         )
 
         # create the force aggregation part of the matrix
         # <forces> * <dim mat> * <features> matrix
-        force_features = np.einsum("...af,...ad->...fd", forces, feat)
+        force_features = np.einsum("...af,...ad->...fd", traj.forces, feat)
 
         # <divergence> is already ready
         # mat1 + kbt mat 2
@@ -386,21 +383,21 @@ def qp_feat_linear_map(
             raise ValueError("Map optimization failed.")
         per_site_feat_coef.append(params)
 
-    force_mapping = _feat_linear_mapping(
+    force_map = _feat_linear_mapping(
         featurizer=featurizer,
         coefs=per_site_feat_coef,
-        mapping=config_mapping,
+        mapping=coord_map,
         constraints=constraints,
         tags={"feat_names": names, "coef_list": per_site_feat_coef},
     )
 
-    return force_mapping
+    return CLAFTMap(coord_map=coord_map, force_map=force_map)
 
 
 def _constr_arrays(
     features: np.ndarray,
     cg_ind: int,
-    config_mapping: LinearMap,
+    coord_map: LinearMap,
     n_frames: int,
     sparse: bool = True,
 ) -> Tuple[Union[np.ndarray, ss.csc_matrix], np.ndarray]:
@@ -422,7 +419,7 @@ def _constr_arrays(
         Later optimization is performed for each cg site individually. The
         particular cg site index used there is also passed here, and is used
         when creating the output target 1-array.
-    config_mapping (map.LinearMap instance):
+    coord_map (map.LinearMap instance):
         Configurational mapping characterizing the coarse-grained resolution.
         Used when creating the output 2-array (including setting n_cg_sites).
     n_frames (positive integer):
@@ -449,9 +446,9 @@ def _constr_arrays(
     subsetted_features = features[frame_indices]
 
     mult_array = np.einsum(
-        "ca,...af->...cf", config_mapping.standard_matrix, subsetted_features
+        "ca,...af->...cf", coord_map.standard_matrix, subsetted_features
     )
-    target_array = np.zeros((n_frames, config_mapping.n_cg_sites))
+    target_array = np.zeros((n_frames, coord_map.n_cg_sites))
     target_array[:, cg_ind] = 1
 
     cmshape = mult_array.shape
@@ -481,7 +478,7 @@ def _feat_linear_mapping(
             copoints (numpy.ndarray):
                 3-D of shape (n_frames,n_fg_sites,n_dims=3) containing the
                 copoints (positions) used for featurization
-            config_mapping (map.LinearMap instance)
+            coord_map (map.LinearMap instance)
                 configurational coarse-graining map of the system
             constraints (set of frozensets)
                 Characterizes molecular constraints in the system
@@ -640,7 +637,7 @@ def multifeaturize(featurizers: List[GeneralizedFeaturizer]) -> GeneralizedFeatu
             copoints (numpy.ndarray):
                 3-D of shape (n_frames,n_fg_sites,n_dims=3) containing the
                 points used for featurization
-            config_mapping (map.LinearMap instance)
+            coord_map (map.LinearMap instance)
                 configurational coarse-graining map of the system
             constraints (set of frozensets)
                 Characterizes molecular constraints in the system
@@ -666,9 +663,9 @@ def multifeaturize(featurizers: List[GeneralizedFeaturizer]) -> GeneralizedFeatu
     """
 
     def composite(
-        copoints: np.ndarray, config_mapping: LinearMap, constraints: Constraints
+        copoints: np.ndarray, coord_map: LinearMap, constraints: Constraints
     ) -> GeneralizedFeatures:
-        output = [feat(copoints, config_mapping, constraints) for feat in featurizers]
+        output = [feat(copoints, coord_map, constraints) for feat in featurizers]
         return FeatZipper(content=output)
 
     return composite
@@ -746,130 +743,3 @@ class Multifeaturize:
         """
         results = [f(*args, **kwargs) for f in self.featurizers]
         return FeatZipper(content=results)
-
-
-# mypy limitations in the current version block paramspec usage
-R = TypeVar("R")
-
-
-class Curry(Generic[R]):
-    """Callable class to curry a function.
-
-    Uses named and keyword arguments.
-
-    That is: for f(x,y), curry(f,y=a) returns a callable g, where g(b) =
-    f(x=b,y=a). Non-keyword arguments also work--- they are passed after any
-    non-keyword arguments passed to g.  Useful when creating a featurization
-    function with certain options set.
-
-    This is an object and not a closure to allow for self description.
-
-    Type hints only maintain return value.
-    """
-
-    def __init__(self, func: Callable[..., R], *args, **kwargs) -> None:
-        """Initialize a Curry object from a function and arguments.
-
-        Arguments:
-        ---------
-        func (callable):
-            Function to be curried.
-        *args:
-            Used to curry func.
-        **kwargs:
-            Used to curry func.
-
-        Returns:
-        -------
-        Callable which evaluates func appending args and kwargs to any passed
-        arguments.
-        """
-        self.args = args
-        self.kwargs = kwargs
-        self.func = func
-
-    def __str__(self) -> str:
-        """Generate string representation."""
-        sp = "    "
-        func_msg = [sp + o for o in str(self.func).split("\n")]
-        args_msg = [sp + o for o in str(self.args).split("\n")]
-        kwargs_msg = [sp + o for o in str(self.kwargs).split("\n")]
-        msg = []
-        msg.append("{} instance:".format(self.__class__))
-        msg.append("callable:")
-        msg.extend(func_msg)
-        msg.append("args:")
-        msg.extend(args_msg)
-        msg.append("kwargs:")
-        msg.extend(kwargs_msg)
-        return "\n".join(msg)
-
-    def __repr__(self) -> str:
-        """Generate brief string representation."""
-        func_msg = repr(self.func)
-        args_msg = repr(self.args)
-        kwargs_msg = repr(self.kwargs)
-        msg = []
-        msg.append("{}():".format(self.__class__))
-        msg.append("C:")
-        msg.append(func_msg)
-        if len(self.args):
-            msg.append("Ar:")
-            msg.append(args_msg)
-        if len(self.kwargs):
-            msg.append("Kw:")
-            msg.append(kwargs_msg)
-        return " ".join(msg)
-
-    def __call__(self, *sub_args, **sub_kwargs) -> R:
-        """Call curried function."""
-        return self.func(*sub_args, *self.args, **sub_kwargs, **self.kwargs)
-
-
-# this should be replaced by the call from functools
-# type hinting may be improvable, but not clear because of old mypy.
-def curry(func: Callable[..., T], *args, **kwargs) -> Callable[..., T]:
-    """Curry a function using named and keyword arguments.
-
-    For f(x,y), curry(f,y=a) returns a function g, where g(b) = f(x=b,y=a).
-    Non-keyword arguments also work--- they are passed after any non-keyword
-    arguments passed to g.  Useful when creating a featurization function with
-    certain options set.
-
-    Type hints only maintain return type.
-
-    Arguments:
-    ---------
-    func (callable):
-        Function to be curried.
-    *args:
-        Used to curry func.
-    **kwargs:
-        Used to curry func.
-
-    Returns:
-    -------
-    Callable which evaluates func appending args and kwargs to any passed
-    arguments.
-    """
-
-    def curried_f(*sub_args, **sub_kwargs) -> T:
-        return func(*sub_args, *args, **sub_kwargs, **kwargs)
-
-    return curried_f
-
-
-def flatten(nested_list: Iterable[Iterable[Any]]) -> List[Any]:
-    """Flattens a nested list.
-
-    Arguments:
-    ---------
-    nested_list (list of lists):
-        List of the form [[a,b...],[h,g,...],...]
-
-    Returns:
-    -------
-    Returns a list where the items are the subitems of nested_list. For example,
-    [[1,2],[3,4] would be transformed into [1,2,3,4].
-    """
-    return [item for sublist in nested_list for item in sublist]

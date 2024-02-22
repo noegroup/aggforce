@@ -10,8 +10,8 @@ This result is not a mathematical certainty, but has been empirically true.
 """
 from pathlib import Path
 import numpy as np
-from aggforce import linearmap as lm
-from aggforce import agg as ag
+from aggforce import LinearMap, project_forces
+from aggforce.agg import TMAP_KNAME
 
 
 def test_agg_opt() -> None:
@@ -23,16 +23,21 @@ def test_agg_opt() -> None:
 
     # CG mapping: two oxygens
     inds = [[0], [3]]
-    cmap = lm.LinearMap(inds, n_fg_sites=forces.shape[1])
-    optim_results = ag.project_forces(
-        xyz=None,
+    cmap = LinearMap(inds, n_fg_sites=forces.shape[1])
+    # make dummy coords
+    coords = np.zeros_like(forces)
+    coords[:] = np.nan
+    optim_results = project_forces(
+        coords=coords,
         forces=forces,
-        config_mapping=cmap,
+        coord_map=cmap,
         constrained_inds=set(),
         solver_args={"solver": "scs"},
     )
 
+    force_map = optim_results[TMAP_KNAME].force_map
+
     # aggregation mapping: we expect that contributions from each water are added up
     # to cancel the intramolecular bond forces
     agg_mapping = np.array([[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1]], dtype=float)
-    assert np.allclose(optim_results["map"].standard_matrix, agg_mapping, atol=5e-3)
+    assert np.allclose(force_map.standard_matrix, agg_mapping, atol=5e-3)
