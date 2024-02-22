@@ -126,8 +126,8 @@ class CLAFTMap(TMap):
 class AugmentedTMap(TMap):
     """Augments and then maps the resulting Trajectory.
 
-    When mapping a trajectory, the input trjaectory is first transformed into a 
-    AugmentedTrajectory using augmenter and kbt; it is then mapped using a 
+    When mapping a trajectory, the input trjaectory is first transformed into a
+    AugmentedTrajectory using augmenter and kbt; it is then mapped using a
     SeperableTMap map derived from aug_coord_map and aug_force_map.
     """
 
