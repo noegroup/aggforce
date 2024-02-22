@@ -10,8 +10,7 @@ This result is not a mathematical certainty, but has been empirically true.
 """
 from pathlib import Path
 import numpy as np
-from aggforce import linearmap as lm
-from aggforce import agg as ag
+from aggforce import LinearMap, project_forces
 
 
 def test_agg_opt() -> None:
@@ -23,8 +22,8 @@ def test_agg_opt() -> None:
 
     # CG mapping: two oxygens
     inds = [[0], [3]]
-    cmap = lm.LinearMap(inds, n_fg_sites=forces.shape[1])
-    optim_results = ag.project_forces(
+    cmap = LinearMap(inds, n_fg_sites=forces.shape[1])
+    optim_results = project_forces(
         xyz=None,
         forces=forces,
         config_mapping=cmap,

@@ -1,5 +1,6 @@
 """Jax-based Trajectory Augmenters."""
 from typing import List, TypeVar, Optional, Union, Tuple, Callable, Final
+from functools import partial
 
 from jax import Array, grad, vmap
 import jax.numpy as jnp
@@ -8,8 +9,7 @@ from jax.scipy.stats.multivariate_normal import logpdf as jglogpdf
 import numpy as np
 
 from .augment import Augmenter
-from ..map import LinearMap
-from ..jaxutil import trjdot
+from ..map import LinearMap, jaxify_linearmap
 
 A = TypeVar("A")
 
@@ -17,55 +17,6 @@ A = TypeVar("A")
 def _ident(x: A, /) -> A:
     """Identity."""
     return x
-
-
-def jaxify_linearmap(
-    lm: LinearMap, flattened: bool = True, n_dim: float = 3
-) -> Callable[[Array], Array]:
-    """Turn a LinearMap object into a Jax-compatible callable.
-
-    If flattened is True, then the derived function works on flattened arrays.
-    For example, for a trajectory of shape (5,2,3) (5 frames, 2 particles, and a
-    dimension of 3), the callable would expect input in the shape of (5,6)--- this
-    is then reshaped internally, transformed, and then again reshaped before being
-    returned. For example, if the internal map matrix if shape (1,2), then
-    the output would be of shape (5,3).
-
-    If flattened if False, then the input would be expected to be of shape (5,2,3)
-    and the output would be (5,1,3).
-
-
-    Arguments:
-    ---------
-    lm:
-        LinearMap instance from which the standard_matrix is extracted and applied
-        via trjdot.
-    flattened:
-        If true, input to the derived function is assumed to be a flattened
-        with respect along the second and third indices and is reshaped before
-        application. The output is then also flattened.
-    n_dim:
-        The size of the dimension in which each particle resides (this is almost
-        always 3 in molecular dynamics). Only used if flattened is True.
-
-    Returns:
-    -------
-    Callable that acts on Jax arrays.
-    """
-    matrix = jnp.array(lm.standard_matrix)
-
-    def wrapped(array: Array) -> Array:
-        if flattened:
-            target = array.reshape((array.shape[0], array.shape[1] // n_dim, n_dim))
-        else:
-            target = array
-        result = trjdot(points=target, factor=matrix)
-        if flattened:
-            return result.reshape((result.shape[0], result.shape[1] * result.shape[2]))
-        else:
-            return result
-
-    return wrapped
 
 
 # we manipulate jax functions to create a function that provides the needed log
@@ -81,7 +32,7 @@ def jaxify_linearmap(
 
 # construct this function step by step.
 # _mvgaussian_prefunc_logpdf
-# gives the required log-density. The action of `A` is encapsulated in `pre_map`.
+# gives the required log-density. The action of `A` is encapsulated in `pre_func`.
 
 
 def _mvgaussian_prefunc_logpdf(
@@ -162,7 +113,9 @@ class JCondNormal(Augmenter):
             self.flattened_premap: Callable[[Array], Array] = _ident
         else:
             self.flattened_premap = jaxify_linearmap(
-                premap, flattened=True, n_dim=self.n_dim
+                premap,
+                flattened=True,
+                n_dim=self.n_dim,
             )
         self._rkey, _ = jrandom.split(jrandom.PRNGKey(seed))
         self._cov = cov
@@ -232,8 +185,9 @@ class JCondNormal(Augmenter):
                 " cov at init, or call sample prior to log_gradient."
             )
         else:
+            per_frame_premap = partial(self.flattened_premap, perframe=True)
             flat_lgrads = _mvgaussian_prefunc_logpdf_grad_vec(
-                flat_generated, flat_source, self.flattened_premap, self.cov
+                flat_generated, flat_source, per_frame_premap, self.cov
             )
             variate_lgrad = self._unflatten(flat_lgrads[0])
             source_lgrad = self._unflatten(flat_lgrads[1])

@@ -29,8 +29,8 @@ from typing import (
 from gc import collect
 from itertools import product
 import numpy as np
-from . import linearmap
-from . import constfinder
+from .constraints import constfinder
+from .qp import qp_linear_map
 from .map import LinearMap
 
 
@@ -51,7 +51,7 @@ def project_forces(
     forces: np.ndarray,
     config_mapping: LinearMap,
     constrained_inds: Union[Set[FrozenSet[int]], str, None] = PROJECT_FORCES_CNSTR_AUTO,
-    method: Callable[..., Callable] = linearmap.qp_linear_map,
+    method: Callable[..., Callable] = qp_linear_map,
     **kwargs,
 ) -> Dict[str, Any]:
     r"""Produce optimized force map.

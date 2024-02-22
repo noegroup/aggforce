@@ -23,7 +23,6 @@ from typing import (
     ClassVar,
     Generator,
     Iterable,
-    Generic,
     TypeVar,
     overload,
     Literal,
@@ -35,9 +34,9 @@ import numpy as np
 from numpy.random import default_rng
 import scipy.sparse as ss  # type: ignore [import-untyped]
 from qpsolvers import solve_qp  # type: ignore [import-untyped]
-from .map import LinearMap, CLAMap
-from .linearmap import reduce_constraint_sets, SolverOptions, DEFAULT_SOLVER_OPTIONS
-from .constfinder import Constraints
+from ..map import LinearMap, CLAMap
+from ..constraints import Constraints, reduce_constraint_sets
+from .qplinear import SolverOptions, DEFAULT_SOLVER_OPTIONS
 
 # This defines featurizers and their output via types.
 
@@ -746,130 +745,3 @@ class Multifeaturize:
         """
         results = [f(*args, **kwargs) for f in self.featurizers]
         return FeatZipper(content=results)
-
-
-# mypy limitations in the current version block paramspec usage
-R = TypeVar("R")
-
-
-class Curry(Generic[R]):
-    """Callable class to curry a function.
-
-    Uses named and keyword arguments.
-
-    That is: for f(x,y), curry(f,y=a) returns a callable g, where g(b) =
-    f(x=b,y=a). Non-keyword arguments also work--- they are passed after any
-    non-keyword arguments passed to g.  Useful when creating a featurization
-    function with certain options set.
-
-    This is an object and not a closure to allow for self description.
-
-    Type hints only maintain return value.
-    """
-
-    def __init__(self, func: Callable[..., R], *args, **kwargs) -> None:
-        """Initialize a Curry object from a function and arguments.
-
-        Arguments:
-        ---------
-        func (callable):
-            Function to be curried.
-        *args:
-            Used to curry func.
-        **kwargs:
-            Used to curry func.
-
-        Returns:
-        -------
-        Callable which evaluates func appending args and kwargs to any passed
-        arguments.
-        """
-        self.args = args
-        self.kwargs = kwargs
-        self.func = func
-
-    def __str__(self) -> str:
-        """Generate string representation."""
-        sp = "    "
-        func_msg = [sp + o for o in str(self.func).split("\n")]
-        args_msg = [sp + o for o in str(self.args).split("\n")]
-        kwargs_msg = [sp + o for o in str(self.kwargs).split("\n")]
-        msg = []
-        msg.append("{} instance:".format(self.__class__))
-        msg.append("callable:")
-        msg.extend(func_msg)
-        msg.append("args:")
-        msg.extend(args_msg)
-        msg.append("kwargs:")
-        msg.extend(kwargs_msg)
-        return "\n".join(msg)
-
-    def __repr__(self) -> str:
-        """Generate brief string representation."""
-        func_msg = repr(self.func)
-        args_msg = repr(self.args)
-        kwargs_msg = repr(self.kwargs)
-        msg = []
-        msg.append("{}():".format(self.__class__))
-        msg.append("C:")
-        msg.append(func_msg)
-        if len(self.args):
-            msg.append("Ar:")
-            msg.append(args_msg)
-        if len(self.kwargs):
-            msg.append("Kw:")
-            msg.append(kwargs_msg)
-        return " ".join(msg)
-
-    def __call__(self, *sub_args, **sub_kwargs) -> R:
-        """Call curried function."""
-        return self.func(*sub_args, *self.args, **sub_kwargs, **self.kwargs)
-
-
-# this should be replaced by the call from functools
-# type hinting may be improvable, but not clear because of old mypy.
-def curry(func: Callable[..., T], *args, **kwargs) -> Callable[..., T]:
-    """Curry a function using named and keyword arguments.
-
-    For f(x,y), curry(f,y=a) returns a function g, where g(b) = f(x=b,y=a).
-    Non-keyword arguments also work--- they are passed after any non-keyword
-    arguments passed to g.  Useful when creating a featurization function with
-    certain options set.
-
-    Type hints only maintain return type.
-
-    Arguments:
-    ---------
-    func (callable):
-        Function to be curried.
-    *args:
-        Used to curry func.
-    **kwargs:
-        Used to curry func.
-
-    Returns:
-    -------
-    Callable which evaluates func appending args and kwargs to any passed
-    arguments.
-    """
-
-    def curried_f(*sub_args, **sub_kwargs) -> T:
-        return func(*sub_args, *args, **sub_kwargs, **kwargs)
-
-    return curried_f
-
-
-def flatten(nested_list: Iterable[Iterable[Any]]) -> List[Any]:
-    """Flattens a nested list.
-
-    Arguments:
-    ---------
-    nested_list (list of lists):
-        List of the form [[a,b...],[h,g,...],...]
-
-    Returns:
-    -------
-    Returns a list where the items are the subitems of nested_list. For example,
-    [[1,2],[3,4] would be transformed into [1,2,3,4].
-    """
-    return [item for sublist in nested_list for item in sublist]

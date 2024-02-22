@@ -211,7 +211,7 @@ class AugmentedTrajectory(Trajectory):
         self.kbt = kbt
         # forces are served via an attribute.
         self._real_forces = forces
-        self._real_n_sites = self.coords.shape[1]
+        self._real_n_sites = coords.shape[1]
         # if augmented_coords/forces are passed, use them. Otherwise generate them.
         if override_first_augment is None:
             ext_coords, ext_forces = self._augment(coords, forces)
@@ -247,13 +247,13 @@ class AugmentedTrajectory(Trajectory):
         that self.kbt is used to scale the log derivative output of augmenter.
 
         """
-        aug_coords = self.augmenter.sample(self.real_coords)
+        aug_coords = self.augmenter.sample(coords)
         real_lgrad_correction, aug_lgrad = self.augmenter.log_gradient(
             coords, aug_coords
         )
         aug_forces = self.kbt * aug_lgrad
         real_forces_corrected = forces + self.kbt * real_lgrad_correction
-        full_coords = concatenate([self.real_coords, aug_coords], axis=1)
+        full_coords = concatenate([coords, aug_coords], axis=1)
         full_forces = concatenate([real_forces_corrected, aug_forces], axis=1)
         return (full_coords, full_forces)
 
