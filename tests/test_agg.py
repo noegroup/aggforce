@@ -26,7 +26,7 @@ def test_agg_opt() -> None:
     cmap = LinearMap(inds, n_fg_sites=forces.shape[1])
     # make dummy coords
     coords = np.zeros_like(forces)
-    coords[:] = np.NaN
+    coords[:] = np.nan
     optim_results = project_forces(
         coords=coords,
         forces=forces,
