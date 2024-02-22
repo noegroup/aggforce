@@ -4,7 +4,8 @@ from typing import Union
 from typing_extensions import TypedDict
 import numpy as np
 from qpsolvers import solve_qp  # type: ignore [import-untyped]
-from ..map import LinearMap
+from ..map import LinearMap, SeperableTMap
+from ..trajectory import ForcesOnlyTrajectory
 from ..constraints import Constraints, reduce_constraint_sets, constraint_lookup_dict
 
 SolverOptions = TypedDict(
@@ -27,13 +28,12 @@ DEFAULT_SOLVER_OPTIONS: SolverOptions = {
 
 
 def qp_linear_map(
-    forces: np.ndarray,
-    config_mapping: LinearMap,
+    traj: ForcesOnlyTrajectory,
+    coord_map: LinearMap,
     constraints: Union[None, Constraints] = None,
     l2_regularization: float = 0.0,
-    xyz: Union[np.ndarray, None] = None,  # noqa: ARG001
     solver_args: SolverOptions = DEFAULT_SOLVER_OPTIONS,
-) -> LinearMap:
+) -> SeperableTMap:
     r"""Search for optimal linear force map.
 
     Optimally is determined via  average lowest mean square norm of the mapped force.
@@ -42,10 +42,9 @@ def qp_linear_map(
 
     Arguments:
     ---------
-    forces (np.ndarray):
-        three dimensional array of shape (n_steps,n_sites,n_dims). Contains the
-        forces of the FG sites as a function of time.
-    config_mapping (np.ndarray):
+    traj (ForcesOnlyTrajectory):
+        ForcesOnlyTrajectory that will use used to get force array.
+    coord_map (LinearMap):
         LinearMap object which characterizes configurational map.
     constraints (set of frozensets):
         Each entry is a frozenset of indices, the group of which is constrained.
@@ -53,22 +52,21 @@ def qp_linear_map(
     l2_regularization (float):
         if positive, a l2 normalization of the (full) mapping vector is applied
         with this coefficient.
-    xyz (None):
-        Ignored. Included for compatibility with the interface of other methods.
     solver_args (dict):
         Passed as options to qp_solve to solve quadratic program.
 
     Returns:
     -------
-    LinearMap object characterizing force mapping.
+    SeperableTMap object characterizing the derived force mapping combined with the
+    given coordinate mapping.
     """
     if constraints is None:
         constraints = set()
     # flatten force array
-    reshaped_fs = qp_form(forces)
+    reshaped_fs = qp_form(traj.forces)
     # construct geom constraint matrix
     # prep matrices for solver
-    con_mat = make_bond_constraint_matrix(config_mapping.n_fg_sites, constraints)
+    con_mat = make_bond_constraint_matrix(coord_map.n_fg_sites, constraints)
     reg_mat = np.matmul(reshaped_fs, con_mat)
     qp_mat = np.matmul(reg_mat.T, reg_mat)
     zero_q = np.zeros(qp_mat.shape[0])
@@ -78,15 +76,16 @@ def qp_linear_map(
     if l2_regularization > 0.0:
         qp_mat += l2_regularization * np.matmul(con_mat.T, con_mat)
     # run solver
-    for ind in range(config_mapping.n_cg_sites):
-        sbasis = np.zeros(config_mapping.n_cg_sites)
+    for ind in range(coord_map.n_cg_sites):
+        sbasis = np.zeros(coord_map.n_cg_sites)
         sbasis[ind] = 1
-        constraint_mat = np.matmul(config_mapping.standard_matrix, con_mat)
+        constraint_mat = np.matmul(coord_map.standard_matrix, con_mat)
         gen_map = solve_qp(
             P=qp_mat, q=zero_q, A=constraint_mat, b=sbasis, **solver_args
         )
         per_site_maps.append(np.matmul(con_mat, gen_map))
-    return LinearMap(np.stack(per_site_maps))
+    force_map = LinearMap(np.stack(per_site_maps))
+    return SeperableTMap(coord_map=coord_map, force_map=force_map)
 
 
 def qp_form(target: np.ndarray) -> np.ndarray:

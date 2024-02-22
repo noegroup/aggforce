@@ -6,7 +6,60 @@ from numpy import ndarray, concatenate
 from .augment import Augmenter
 
 
-class Trajectory:
+class ForcesOnlyTrajectory:
+    r"""Trajectory with forces but without positions.
+
+    This is similar to Trajectory, but without forces. See Trajectory class for
+    more information.
+    """
+
+    def __init__(self, forces: ndarray) -> None:
+        """Initialize.
+
+        Arguments:
+        ---------
+        forces:
+            forces for multiple timesteps.
+        """
+        if len(forces.shape) != 3:
+            raise ValueError("forces must have 3 dimensions.")
+        self.forces = forces
+        return
+
+    @property
+    def n_sites(self) -> int:
+        """Number of particles in the system."""
+        return self.forces.shape[1]
+
+    @property
+    def n_dim(self) -> int:
+        """Dimension of the individual particles in the system.
+
+        This is 3 in typical molecular dynamics applications.
+        """
+        return self.forces.shape[2]
+
+    def __len__(self) -> int:
+        """Return the number of frames in the system."""
+        return len(self.forces)
+
+    def __getitem__(self, index: slice) -> "ForcesOnlyTrajectory":
+        """Index trajectory.
+
+        Only slices are allowed. Returns a ForcesOnlyTrajectory instance.
+        """
+        if not isinstance(index, slice):
+            raise ValueError("Only slices are allowed for indexing.")
+        new_forces = self.forces[index]
+        return self.__class__(forces=new_forces)
+
+    def copy(self) -> "ForcesOnlyTrajectory":
+        """Copy a trajectory object."""
+        new_forces = self.forces.copy()
+        return self.__class__(forces=new_forces)
+
+
+class Trajectory(ForcesOnlyTrajectory):
     r"""Collection of coordinates and forces from a molecular trajectory.
 
     A molecular dynamics simulation saves coordinates and forces at various
@@ -54,25 +107,8 @@ class Trajectory:
         if len(coords.shape) != 3:
             raise ValueError("coords and forces must be of same shape.")
         self.coords = coords
-        self.forces = forces
+        super().__init__(forces=forces)
         return
-
-    @property
-    def n_sites(self) -> int:
-        """Number of particles in the system."""
-        return self.coords.shape[1]
-
-    @property
-    def n_dim(self) -> int:
-        """Dimension of the individual particles in the system.
-
-        This is 3 in typical molecular dynamics applications.
-        """
-        return self.coords.shape[2]
-
-    def __len__(self) -> int:
-        """Return the number of frames in the system."""
-        return len(self.coords)
 
     def __getitem__(self, index: slice) -> "Trajectory":
         """Index trajectory.
@@ -82,13 +118,13 @@ class Trajectory:
         if not isinstance(index, slice):
             raise ValueError("Only slices are allowed for indexing.")
         new_coords = self.coords[index]
-        new_forces = self.coords[index]
+        new_forces = self.forces[index]
         return Trajectory(coords=new_coords, forces=new_forces)
 
     def copy(self) -> "Trajectory":
         """Copy a trajectory object."""
         new_coords = self.coords.copy()
-        new_forces = self.coords.copy()
+        new_forces = self.forces.copy()
         return Trajectory(coords=new_coords, forces=new_forces)
 
 

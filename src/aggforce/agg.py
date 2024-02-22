@@ -13,8 +13,6 @@ nonlinear). project_forces_grid_cv performs cross validation.
 
 from typing import (
     Union,
-    Set,
-    FrozenSet,
     Callable,
     Dict,
     Any,
@@ -29,9 +27,10 @@ from typing import (
 from gc import collect
 from itertools import product
 import numpy as np
-from .constraints import constfinder
+from .constraints import Constraints, guess_pairwise_constraints
 from .qp import qp_linear_map
-from .map import LinearMap
+from .map import LinearMap, TMap
+from .trajectory import Trajectory
 
 
 PROJECT_FORCES_CNSTR_AUTO: Final = "auto"
@@ -40,18 +39,19 @@ SCORES_KNAME: Final = "scores"
 SDS_KNAME: Final = "sds"
 NRUNS_KNAME: Final = "n_runs"
 
-PROJFORCE_KNAME: Final = "projected_forces"
-FMAP_KNAME: Final = "map"
+PROJFORCES_KNAME: Final = "mapped_coords"
+PROJCOORDS_KNAME: Final = "mapped_forces"
+TMAP_KNAME: Final = "tmap"
 RESIDUAL_KNAME: Final = "residual"
 CONSTRAINTS_KNAME: Final = "constraints"
 
 
 def project_forces(
-    xyz: Union[None, np.ndarray],
+    coords: np.ndarray,
     forces: np.ndarray,
-    config_mapping: LinearMap,
-    constrained_inds: Union[Set[FrozenSet[int]], str, None] = PROJECT_FORCES_CNSTR_AUTO,
-    method: Callable[..., Callable] = qp_linear_map,
+    coord_map: LinearMap,
+    constrained_inds: Union[Constraints, str, None] = PROJECT_FORCES_CNSTR_AUTO,
+    method: Callable[..., TMap] = qp_linear_map,
     **kwargs,
 ) -> Dict[str, Any]:
     r"""Produce optimized force map.
@@ -62,7 +62,7 @@ def project_forces(
 
     Arguments:
     ---------
-    xyz (np.ndarray):
+    coords (np.ndarray):
         Three dimensional array of shape (n_steps,n_sites,n_dims). Contains the
         positions of the fg sites as a function of time.  Note that in the case
         of linear force maps, the content of this argument is ignored for
@@ -71,14 +71,14 @@ def project_forces(
     forces (np.ndarray):
         Three dimensional array of shape (n_steps,n_sites,n_dims). Contains the
         forces on the fg sites as a function of time.
-    config_mapping (map.LinearMap):
+    coord_map (map.LinearMap):
         LinearMap characterizing the fg -> cg configurational map.
     constrained_inds (set of frozensets or 'auto'):
         If a set of frozensets, then each entry is a frozenset of indices, the
         group of which is constrained.  Currently, only bond constraints (frozen
         sets of 2 elements) are supported.  if 'auto', then
         guess_pairwise_constraints is used to generate a list of constrained
-        atoms. All of xyz is passed to this function; if more flexibility is
+        atoms. All of coords is passed to this function; if more flexibility is
         desired, call it externally and pass its output through this argument.
     method (callable):
         Specifies what method to use to find the optimal map.
@@ -87,14 +87,11 @@ def project_forces(
 
     Returns:
     -------
-    If only_return_forces, return an np.ndarray of shape
-    (n_steps,n_cg_sites,n_dims) which contains the optimally mapped forces.
-    If not only_return_forces, a dictionary with the following elements is
-    returned:
+    A dictionary with the following elements is returned:
         projected_force =
             np.ndarray of shape (n_steps,n_cg_sites,n_dims).
         map =
-            Map characterizing the optimal force map.
+            TMap characterizing the optimal joint coord and force map.
         residual =
             Force map residual calculated using force_smoothness. Note that this
             is not performed on a hold-out set, so be wary of overfitting.
@@ -106,33 +103,36 @@ def project_forces(
     -----
     The strings used as keys in the output dictionary are source from the following
     submodule variables:
-        PROJFORCE_KNAME
+        PROJFORCES_KNAME
         MAP_KNAME
         RESIDUAL_KNAME
         CONSTRAINTS_KNAME
 
     """
     if constrained_inds == PROJECT_FORCES_CNSTR_AUTO:
-        if isinstance(xyz, np.ndarray):
-            constrained_inds = constfinder.guess_pairwise_constraints(xyz)
+        if isinstance(coords, np.ndarray):
+            constrained_inds = guess_pairwise_constraints(coords)
         else:
             raise ValueError(
                 f"If constrained_inds is {PROJECT_FORCES_CNSTR_AUTO}, "
-                "xyz cannot be None."
+                "coords cannot be None."
             )
-    force_map: Callable = method(
-        xyz=xyz,
-        config_mapping=config_mapping,
-        forces=forces,
+    t = Trajectory(coords=coords, forces=forces)
+    traj_map: TMap = method(
+        traj=t,
+        coord_map=coord_map,
         constraints=constrained_inds,
         **kwargs,
     )
-    mapped_forces = force_map(points=forces, copoints=xyz)
-    to_return = {}
-    to_return.update({PROJFORCE_KNAME: mapped_forces})
-    to_return.update({FMAP_KNAME: force_map})
+    mapped_traj = traj_map(t)
+    mapped_coords = mapped_traj.coords
+    mapped_forces = mapped_traj.forces
+    to_return: Dict[str, Union[np.ndarray, float, Constraints, TMap]] = {}
+    to_return.update({PROJCOORDS_KNAME: mapped_coords})
+    to_return.update({PROJFORCES_KNAME: mapped_forces})
+    to_return.update({TMAP_KNAME: traj_map})
     to_return.update({RESIDUAL_KNAME: force_smoothness(mapped_forces)})
-    to_return.update({CONSTRAINTS_KNAME: constrained_inds})
+    to_return.update({CONSTRAINTS_KNAME: constrained_inds})  # type: ignore [dict-item]
     return to_return
 
 
@@ -141,8 +141,8 @@ T = TypeVar("T")
 
 def project_forces_grid_cv(
     cv_arg_dict: Mapping[str, List[T]],
+    coords: np.ndarray,
     forces: np.ndarray,
-    xyz: Union[np.ndarray, None] = None,
     n_folds: int = 5,
     **kwargs,
 ) -> Dict[str, Dict[NamedTuple, T]]:
@@ -161,7 +161,7 @@ def project_forces_grid_cv(
     forces (numpy.ndarray):
         See project_forces; it is split into CV folds before being passed to
         project_forces.
-    xyz (numpy.ndarray or None):
+    coords (numpy.ndarray):
         See project_forces; it is split into CV folds before being passed to
         project_forces, unless it is None, in which case it is simply passed.
     n_folds (positive integer):
@@ -208,26 +208,24 @@ def project_forces_grid_cv(
         for train_inds, val_inds in zip(compl_chunked_frame_inds, chunked_frame_inds):
             # make training data
             train_forces = forces[train_inds]
-            if xyz is None:
-                train_xyz = None
-            else:
-                train_xyz = xyz[train_inds]
+            train_coords = coords[train_inds]
             # use training data for parameterization
             try:
-                trained_map = project_forces(
-                    xyz=train_xyz, forces=train_forces, **combined_kwargs
-                )[FMAP_KNAME]
+                trained_tmap = project_forces(
+                    coords=train_coords, forces=train_forces, **combined_kwargs
+                )[TMAP_KNAME]
                 # make validation data
                 val_forces = forces[val_inds]
-                if xyz is None:
-                    val_xyz = None
+                if coords is None:
+                    val_coords = None
                 else:
-                    val_xyz = xyz[val_inds]
+                    val_coords = coords[val_inds]
                 # use validation data
-                cv_fold_scores.append(
-                    force_smoothness(trained_map(points=val_forces, copoints=val_xyz))
+                _, val_forces = trained_tmap.from_arrays(
+                    coords=val_coords, forces=val_forces
                 )
-                del trained_map
+                cv_fold_scores.append(force_smoothness(val_forces))
+                del trained_tmap
             except ValueError as e:
                 print(e)
             collect()

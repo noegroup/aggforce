@@ -1,18 +1,18 @@
 """Provides tools for basic aggregation force maps."""
 
 from typing import Union
-from ..map import LinearMap
-from ..constraints import Constraints, reduce_constraint_sets
 from itertools import product
 import numpy as np
+from ..trajectory import ForcesOnlyTrajectory
+from ..map import LinearMap, SeperableTMap
+from ..constraints import Constraints, reduce_constraint_sets
 
 
 def constraint_aware_uni_map(
-    config_mapping: LinearMap,
+    traj: ForcesOnlyTrajectory,  # noqa: ARG001
+    coord_map: LinearMap,
     constraints: Union[None, Constraints] = None,
-    xyz: Union[None, np.ndarray] = None,  # noqa: ARG001
-    forces: Union[None, np.ndarray] = None,  # noqa: ARG001
-) -> LinearMap:
+) -> SeperableTMap:
     r"""Produce a uniform basic force map compatible with constraints.
 
     The given configurational map associates various fine-grained (fg) sites with
@@ -32,15 +32,13 @@ def constraint_aware_uni_map(
 
     Arguments:
     ---------
-    config_mapping (linearmap.LinearMap):
+    coord_map (linearmap.LinearMap):
         LinearMap object characterizing the configurational map characterizing
         the connection between the fine-grained and coarse-grained systems.
     constraints (None or set of frozen sets):
         Each set entry is a set of indices, the group of which is constrained.
         Currently, only bond constraints (frozen sets of 2 elements) are supported.
-    xyz:
-        Ignored. Included for compatibility with other mapping methods.
-    forces:
+    traj:
         Ignored. Included for compatibility with other mapping methods.
 
     Returns:
@@ -50,14 +48,15 @@ def constraint_aware_uni_map(
     if constraints is None:
         constraints = set()
     # get which sites have nonzero contributions to each cg site
-    cg_sets = [set(np.nonzero(row)[0]) for row in config_mapping.standard_matrix]
+    cg_sets = [set(np.nonzero(row)[0]) for row in coord_map.standard_matrix]
     constraints = reduce_constraint_sets(constraints)
     # add atoms which are related by constraint to those already in cg sites
     for group, x in product(cg_sets, constraints):
         if group.intersection(x):
             group.update(x)
-    force_map_mat = np.zeros_like(config_mapping.standard_matrix)
+    force_map_mat = np.zeros_like(coord_map.standard_matrix)
     # place a 1 where all original or those pulled in by constraints are
     for cg_index, cg_contents in enumerate(cg_sets):
         force_map_mat[cg_index, list(cg_contents)] = 1.0
-    return LinearMap(force_map_mat)
+    force_map = LinearMap(force_map_mat)
+    return SeperableTMap(coord_map=coord_map, force_map=force_map)

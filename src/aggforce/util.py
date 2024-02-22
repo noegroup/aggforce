@@ -76,6 +76,55 @@ def distances(
     return subsetted_distances
 
 
+def trjdot(points: np.ndarray, factor: np.ndarray) -> np.ndarray:
+    """Perform a matrix product with mdtraj-style arrays.
+
+    Arguments:
+    ---------
+    points (numpy.ndarray):
+        3-dim ndarray of shape (n_steps,n_sites,n_dims). To be mapped using
+        factor.
+    factor (numpy.ndarray):
+        2-dim ndarray of shape (n_cg_sites,n_sites) or 3-dim ndarray of shape
+        (n_steps,n_cg_sites,n_sites). Used to map points.
+
+    Returns:
+    -------
+    ndarray of shape (n_steps,n_cg_sites,n_dims) contained points mapped
+    with factor.
+
+    Notes:
+    -----
+    Functionality is most easily described via an example:
+        Molecular positions (and forces) are often represented as arrays of
+        shape (n_steps,n_sites,n_dims). Other places in the code we often
+        transform these arrays to a reduced (coarse-grained) resolution where
+        the output is (n_steps,n_cg_sites,n_dims).
+
+        (When linear) the relationship between the old (n_sites) and new
+        (n_cg_sites) resolution can be described as a matrix of size
+        (n_sites,n_cg_sites). This relationship is between sites, and is
+        broadcast across the other dimensions. Here, the sites are contained in
+        points, and the mapping relationship is in factor.
+
+        However, we cannot directly use dot products to apply such a matrix map.
+        This function applies this factor matrix as expected, in spirit of
+        (points * factor).
+
+        Additionally, if instead the matrix mapping changes at each frame of the
+        trajectory, this can be specified by providing a factor of shape
+        (n_steps,n_cg_sites,n_sites). This situation is determined by
+        considering the dimension of factor.
+    """
+    # optimal path found from external optimization with einsum_path
+    opt_path = ["einsum_path", (0, 1)]
+    if len(factor.shape) == 2:
+        return np.einsum("tfd,cf->tcd", points, factor, optimize=opt_path)
+    if len(factor.shape) == 3:
+        return np.einsum("...fd,...cf->...cd", points, factor, optimize=opt_path)
+    raise ValueError("Factor matrix is an incompatible shape.")
+
+
 def flatten(nested_list: Iterable[Iterable[Any]]) -> List[Any]:
     """Flattens a nested list.
 
