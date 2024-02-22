@@ -10,7 +10,7 @@ from ..map import smear_map
 from ..constraints import reduce_constraint_sets
 from ..map import LinearMap
 from ..constraints import Constraints
-from ..jaxutil import trjdot, abatch
+from ..jaxutil import trjdot, abatch, distances
 
 
 DIVMETHOD_REORDER: Final = "reorder"
