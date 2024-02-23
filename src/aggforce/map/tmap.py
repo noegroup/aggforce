@@ -133,32 +133,25 @@ class AugmentedTMap(TMap):
 
     def __init__(
         self,
-        aug_coord_map: ArrayTransform,
-        aug_force_map: ArrayTransform,
+        aug_tmap: TMap,
         augmenter: Augmenter,
         kbt: float,
     ) -> None:
-        """Intialize.
+        """Initialize.
 
         Arguments:
         ---------
-        aug_coord_map:
-            Callable mapping coordinates that will be used to create a
-            SeperableTMap with aug_force_map and applied to the derived
-            AugmentedTrajectory.
-        aug_force_map:
-            See aug_coord_map
+        aug_tmap:
+            Trajectory map that will be applied to each AugmentedTrajectory.
         augmenter:
-            Expands system prior to mapping. Used to create each
+            Expands trajectory prior to mapping, i.e. used to create each 
             AugmentedTrajectory instance.
         kbt:
             Boltzmann constant multiplied by temperature for systems that will
             be mapped. Used to create each hAugmentedTrajectory instance.
 
         """
-        self.tmap: Final = SeperableTMap(
-            coord_map=aug_coord_map, force_map=aug_force_map
-        )
+        self.tmap: Final = aug_tmap
         self.augmenter: Final = augmenter
         self.kbt: Final = kbt
 
