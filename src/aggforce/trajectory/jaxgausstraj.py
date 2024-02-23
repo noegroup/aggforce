@@ -9,7 +9,6 @@ from jax.scipy.stats.multivariate_normal import logpdf as jglogpdf
 import numpy as np
 
 from .augment import Augmenter
-from ..map import LinearMap, jaxify_linearmap
 
 A = TypeVar("A")
 
@@ -92,32 +91,34 @@ class JCondNormal(Augmenter):
     def __init__(
         self,
         cov: Union[float, np.ndarray],
-        premap: Optional[LinearMap] = None,
-        seed: int = 0,
+        premap: Optional[Callable[[Array],Array]] = None,
+        seed: Optional[int] = None,
     ) -> None:
         """Initialize.
 
         Arguments:
         ---------
         cov:
-            Specifies the covariance matrix of the
+            Specifies the covariance matrix of the added gaussian noise. Note
+            that this must be of shape (n_particles*n_dim,n_particles*n_dim).
         premap:
             A LinearMap object used when creating the augmenting variables.
             Note that the dimension of the output of this linear map controls
             the dimension of the augmenting variables. See class description.
         seed:
-            Seed for jax random number generation.
+            Seed for jax random number generation. If None, a random integer
+            from numpy is used.
 
         """
         if premap is None:
-            self.flattened_premap: Callable[[Array], Array] = _ident
+            self.premap: Callable[[Array], Array] = _ident
         else:
-            self.flattened_premap = jaxify_linearmap(
-                premap,
-                flattened=True,
-                n_dim=self.n_dim,
-            )
-        self._rkey, _ = jrandom.split(jrandom.PRNGKey(seed))
+            self.premap = premap
+        if seed is None:
+            true_seed = np.random.default_rng().integers(low=0,high=int(1e6))
+        else:
+            true_seed = seed
+        self._rkey, _ = jrandom.split(jrandom.PRNGKey(true_seed))
         self._cov = cov
         # if cov is a float, we need to defer creating the covariance matrix until
         # we see the dimensionality of samples.
@@ -146,7 +147,7 @@ class JCondNormal(Augmenter):
 
         """
         flattened = self._flatten(jnp.asarray(source))
-        means = self.flattened_premap(flattened)
+        means = self.premap(flattened)
         return np.asarray(self._unflatten(self._sample(means)))
 
     def log_gradient(
@@ -185,7 +186,7 @@ class JCondNormal(Augmenter):
                 " cov at init, or call sample prior to log_gradient."
             )
         else:
-            per_frame_premap = partial(self.flattened_premap, perframe=True)
+            per_frame_premap = partial(self.premap, perframe=True)
             flat_lgrads = _mvgaussian_prefunc_logpdf_grad_vec(
                 flat_generated, flat_source, per_frame_premap, self.cov
             )
