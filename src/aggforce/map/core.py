@@ -4,12 +4,13 @@ These maps transform fine-grained points to coarse-grained points. Points may be
 positions or forces.
 """
 
-from typing import Union, List, Iterable, Callable, Final, Dict, Optional
-from itertools import combinations, product
+from typing import Union, List, Callable, Final, Dict, Optional
 import numpy as np
 from ..util import trjdot
 
 
+# _Taggable is only used by CLAMap right now, but its a separate class
+# to keep things clear.
 class _Taggable:
     r"""Provides a basic interface for having tags.
 
@@ -274,47 +275,3 @@ class CLAMap(_Taggable):
         scale = self.scale(copoints)
         trans = self.trans(copoints)
         return trjdot(points, scale) + trans
-
-
-def smear_map(
-    site_groups: Iterable[Iterable[int]],
-    n_sites: int,
-    return_mapping_matrix: bool = False,
-) -> Union[LinearMap, np.ndarray]:
-    """LinearMap which replaces the groups of atoms with their mean.
-
-    Arguments:
-    ---------
-    site_groups (list of iterables of integers):
-        List of iterables, each member of which describes a group of sites
-        which must be "smeared" together.
-    n_sites (integer):
-        Total number of sites in the system
-    return_mapping_matrix (boolean):
-        If true, instead of a LinearMap, the mapping matrix itself is returned.
-
-    Returns:
-    -------
-    LinearMap instance or 2-dimensional numpy.ndarray
-
-    Notes:
-    -----
-    This map does _not_ reduce the dimensionality of a system;
-    instead, every modified position is replaced with the corresponding mean.
-    """
-    site_sets = [set(x) for x in site_groups]
-
-    for pair in combinations(site_sets, 2):
-        if pair[0].intersection(pair[1]):
-            raise ValueError(
-                "Site definitions in site_groups overlap; merge before passing."
-            )
-
-    matrix = np.zeros((n_sites, n_sites), dtype=np.float32)
-    np.fill_diagonal(matrix, 1)
-    for group in site_sets:
-        inds0, inds1 = zip(*product(group, group))
-        matrix[inds0, inds1] = 1 / len(group)
-    if return_mapping_matrix:
-        return matrix
-    return LinearMap(mapping=matrix)
