@@ -20,11 +20,11 @@ def joptgauss_map(
 
     Gaussian maps are stochastic Trajectory maps that add Gaussian noise to
     coordinates and subsequently combine force information derived from this noise
-    with forces present in the input Trajectory. The derived map operates solely 
-    on Trajectory objects, hiding the intermediate addition of noise and subsequent 
+    with forces present in the input Trajectory. The derived map operates solely
+    on Trajectory objects, hiding the intermediate addition of noise and subsequent
     internal mapping operations.
 
-    The level of mixing between reference and noise derived force information is 
+    The level of mixing between reference and noise derived force information is
     optimized to minimize the mean force norm during training.
 
     Note that unlike some other routines, the returned TMap instance is not
@@ -38,9 +38,9 @@ def joptgauss_map(
     This routine does roughly the following steps:
         1. Create an AugmentedTrajectory:
             The first n particles of this instance are the particles present in traj.
-            N new particles are added by adding Gaussian noise to the system and 
+            N new particles are added by adding Gaussian noise to the system and
             treating the new output as a new particle position. This noise is added
-            to the system after `coord_map` is applied. 
+            to the system after `coord_map` is applied.
 
             For example, if coord_map isolates the carbon-alphas of the system,
             Gaussian noise is added to the carbon alphas to create "noised carbon-
@@ -65,7 +65,7 @@ def joptgauss_map(
         Trajectory instance that will be used to create the optimized force map and
         then subsequently mapped.
     coord_map:
-        Coordinate map representing the coarse-grained description of the system. The 
+        Coordinate map representing the coarse-grained description of the system. The
         output dimension (n_cg_sites) determines the number of auxiliary particles to
         the Gaussian noise augmenter will add to the system.
 

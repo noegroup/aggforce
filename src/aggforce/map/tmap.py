@@ -144,7 +144,7 @@ class AugmentedTMap(TMap):
         aug_tmap:
             Trajectory map that will be applied to each AugmentedTrajectory.
         augmenter:
-            Expands trajectory prior to mapping, i.e. used to create each 
+            Expands trajectory prior to mapping, i.e. used to create each
             AugmentedTrajectory instance.
         kbt:
             Boltzmann constant multiplied by temperature for systems that will

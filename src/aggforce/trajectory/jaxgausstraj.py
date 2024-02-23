@@ -91,7 +91,7 @@ class JCondNormal(Augmenter):
     def __init__(
         self,
         cov: Union[float, np.ndarray],
-        premap: Optional[Callable[[Array],Array]] = None,
+        premap: Optional[Callable[[Array], Array]] = None,
         seed: Optional[int] = None,
     ) -> None:
         """Initialize.
@@ -115,7 +115,7 @@ class JCondNormal(Augmenter):
         else:
             self.premap = premap
         if seed is None:
-            true_seed = np.random.default_rng().integers(low=0,high=int(1e6))
+            true_seed = np.random.default_rng().integers(low=0, high=int(1e6))
         else:
             true_seed = seed
         self._rkey, _ = jrandom.split(jrandom.PRNGKey(true_seed))
