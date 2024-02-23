@@ -317,6 +317,16 @@ class AugmentedTrajectory(Trajectory):
         """Real forces cannot be set directly."""
         raise ValueError("real_forces cannot be reassigned.")
 
+    @property
+    def n_real_sites(self) -> int:
+        """Number of real particles in the system."""
+        return self.real_coords.shape[1]
+
+    @property
+    def n_aug_sites(self) -> int:
+        """Number of augmenting particles in the system."""
+        return self.coords.shape[1] - self.real_coords.shape[1]
+
     def refresh(
         self,
     ) -> None:
