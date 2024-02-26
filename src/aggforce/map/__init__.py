@@ -8,5 +8,5 @@ from .tools import lmap_augvariables, smear_map
 # in case jax is not installed
 try:
     from .jaxtools import jaxify_linearmap
-except ModuleNotFoundError:
+except ImportError:
     pass
