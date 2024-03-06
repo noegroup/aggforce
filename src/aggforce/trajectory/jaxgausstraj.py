@@ -1,6 +1,5 @@
 """Jax-based Trajectory Augmenters."""
 from typing import List, TypeVar, Optional, Union, Tuple, Callable, Final
-from functools import partial
 
 from jax import Array, grad, vmap
 import jax.numpy as jnp
@@ -16,6 +15,29 @@ A = TypeVar("A")
 def _ident(x: A, /) -> A:
     """Identity."""
     return x
+
+
+class _perframe_wrap:
+    """Transforms callable acting on chunks to one acting on frames.
+
+    If I have a function that acts on trajectory arrays of size
+    (n_frames,n_sites,n_dims), this class creates a callable that acts arrays of size
+    (n_sites,n_dims), where the output the function evaluated on an array of shape
+    (0,n_sites,n_dims) and then index along the first axis.
+
+    This is needed for vmap calls in this module.
+    """
+
+    def __init__(self, call: Callable[[Array], Array]) -> None:
+        """Initialize.
+
+        call is the callable to be wrapped.
+        """
+        self.call = call
+
+    def __call__(self, target: Array) -> Array:
+        expanded_target = target[None, ...]
+        return self.call(expanded_target)[0]
 
 
 # we manipulate jax functions to create a function that provides the needed log
@@ -186,7 +208,7 @@ class JCondNormal(Augmenter):
                 " cov at init, or call sample prior to log_gradient."
             )
         else:
-            per_frame_premap = partial(self.premap, perframe=True)
+            per_frame_premap = _perframe_wrap(self.premap)
             flat_lgrads = _mvgaussian_prefunc_logpdf_grad_vec(
                 flat_generated, flat_source, per_frame_premap, self.cov
             )

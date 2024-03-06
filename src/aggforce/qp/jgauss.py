@@ -1,7 +1,7 @@
 """Provides jax methods for making optimized stochastic coordinate-force maps."""
 
 from typing import Optional
-from ..map import LinearMap, AugmentedTMap, jaxify_linearmap, lmap_augvariables
+from ..map import LinearMap, JLinearMap, AugmentedTMap, lmap_augvariables
 from ..trajectory import Trajectory, AugmentedTrajectory, JCondNormal
 from ..constraints import Constraints
 from .qplinear import qp_linear_map
@@ -91,9 +91,10 @@ def joptgauss_map(
 
     """
     # the coord_map is used in the definition of JCondNormal, which does the noising.
-    # however, it needs to be modified into a jax function which acts on flattened
-    # vectors and allows for single-frame operation.
-    flattened_cmap = jaxify_linearmap(coord_map)
+    # however, it needs to in the form of jax function which acts on flattened
+    # vectors and allows for single-frame operation. This is accessible via an
+    # attributed of a jaxxed LinearMap (JLinearMap) attribute.
+    flattened_cmap = JLinearMap.from_linearmap(coord_map).flat_call
     # create the object that will do the noising
     augmenter = JCondNormal(cov=var, premap=flattened_cmap, seed=seed)
     # create extended trajectory using the derived noiser
