@@ -18,6 +18,6 @@ from .featlinearmap import (
 
 try:
     from .jaxfeat import gb_feat
-    from .jgauss import joptgauss_map
+    from .jgauss import joptgauss_map, stagedjoptgauss_map
 except ImportError:
     pass

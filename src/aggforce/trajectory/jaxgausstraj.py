@@ -88,6 +88,14 @@ class JCondNormal(Augmenter):
     where `A` is a matrix specified by a Linear Map object and E is a given
     covariance matrix. E can be set via a scalar to be diagonal.
 
+    premap is a callable which is applied to _flattened_ forms of the input
+    coordinates. See _flatten and _unflatten for the flattening operation.
+    It typically reduces the dimension of the input. postmap is applied to the
+    returned forces/scores on the input coordinates, and again must act
+    on flat arrays. While premap is usually specified, postmap only has
+    use in cross resolution cases and should be used with extreme care: the
+    gradients returned with postmap set to None are more intuitive.
+
     Note:
     ----
     This object uses Jax for derivatives, but all public methods/attributes
@@ -114,6 +122,7 @@ class JCondNormal(Augmenter):
         self,
         cov: Union[float, np.ndarray],
         premap: Optional[Callable[[Array], Array]] = None,
+        source_postmap: Optional[Callable[[Array], Array]] = None,
         seed: Optional[int] = None,
     ) -> None:
         """Initialize.
@@ -124,9 +133,12 @@ class JCondNormal(Augmenter):
             Specifies the covariance matrix of the added gaussian noise. Note
             that this must be of shape (n_particles*n_dim,n_particles*n_dim).
         premap:
-            A LinearMap object used when creating the augmenting variables.
-            Note that the dimension of the output of this linear map controls
+            Callable object used when creating the augmenting variables.
+            Note that the dimension of the output of this function controls
             the dimension of the augmenting variables. See class description.
+        source_postmap:
+            Callable that is applied to the forces return on the source particles
+            in log_gradient. This option
         seed:
             Seed for jax random number generation. If None, a random integer
             from numpy is used.
@@ -136,6 +148,10 @@ class JCondNormal(Augmenter):
             self.premap: Callable[[Array], Array] = _ident
         else:
             self.premap = premap
+        if source_postmap is None:
+            self.source_postmap: Callable[[Array], Array] = _ident
+        else:
+            self.source_postmap = source_postmap
         if seed is None:
             true_seed = np.random.default_rng().integers(low=0, high=int(1e6))
         else:
@@ -215,7 +231,9 @@ class JCondNormal(Augmenter):
             variate_lgrad = self._unflatten(flat_lgrads[0])
             source_lgrad = self._unflatten(flat_lgrads[1])
 
-        return (np.asarray(source_lgrad), np.asarray(variate_lgrad))
+        post_source_lgrad = self.source_postmap(source_lgrad)
+
+        return (np.asarray(post_source_lgrad), np.asarray(variate_lgrad))
 
     def _sample(self, means: Array, vectorized: bool = True) -> Array:
         """Generate Gaussian samples given array of means.

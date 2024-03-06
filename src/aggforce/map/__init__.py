@@ -2,7 +2,7 @@
 # __init__ doesn't use the imported objects
 # ruff: noqa: F401
 from .core import LinearMap, CLAMap, trjdot
-from .tmap import TMap, SeperableTMap, CLAFTMap, AugmentedTMap
+from .tmap import TMap, SeperableTMap, CLAFTMap, AugmentedTMap, ComposedTMap, RATMap
 from .tools import lmap_augvariables, smear_map
 
 # in case jax is not installed

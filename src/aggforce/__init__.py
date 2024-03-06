@@ -22,6 +22,6 @@ from .map import LinearMap
 
 # in case jax is not installed
 try:
-    from .qp import joptgauss_map
+    from .qp import joptgauss_map, stagedjoptgauss_map
 except ImportError:
     pass

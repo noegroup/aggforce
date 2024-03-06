@@ -201,6 +201,23 @@ class LinearMap:
             (transformed.shape[0], transformed.shape[1] * transformed.shape[2]),
         )
 
+    @property
+    def T(self) -> "LinearMap":
+        """LinearMap defined by transpose of its standard matrix."""
+        return LinearMap(mapping=self.standard_matrix.T)
+
+    def __matmul__(self, lm: "LinearMap", /) -> "LinearMap":
+        """LinearMap defined by multiplying the standard_matrix's of arguments."""
+        return LinearMap(mapping=self.standard_matrix @ lm.standard_matrix)
+
+    def __rmul__(self, c: float, /) -> "LinearMap":
+        """LinearMap defined by multiplying the standard_matrix's with a coefficient."""
+        return LinearMap(mapping=c * self.standard_matrix)
+
+    def __add__(self, lm: "LinearMap", /) -> "LinearMap":
+        """LinearMap defined by adding standard_matrices."""
+        return LinearMap(mapping=self.standard_matrix + lm.standard_matrix)
+
 
 class CLAMap(_Taggable):
     r"""Provide representation of a Co-Local Affine map.

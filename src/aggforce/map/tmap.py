@@ -3,7 +3,7 @@ r"""Provides maps for trajectory objects.
 These objects effectively map coordinates and forces together.
 """
 
-from typing import Tuple, Callable, Final
+from typing import Tuple, Callable, Final, Iterable
 from abc import ABC, abstractmethod
 import numpy as np
 from ..trajectory import Trajectory, AugmentedTrajectory, Augmenter
@@ -166,3 +166,85 @@ class AugmentedTMap(TMap):
             t=t, kbt=self.kbt, augmenter=self.augmenter
         )
         return self.tmap(augmented)
+
+
+class ComposedTMap(TMap):
+    """Combines multiple TMap instances into a single TMap.
+
+    The given TMaps are applied one by one. Note that the rightmost
+    map is applied first.
+
+    Attributes:
+    ----------
+    submaps:
+        List of the TMaps that are applied via a call method. Note
+        that the maps are applied starting at the right of this list,
+        not the left (this mirrors how functional composition is written.
+
+        submaps may be modified after initialization.
+
+    This object can be indexed;  integer indexing returns the underlying
+    maps.
+
+    """
+
+    def __init__(
+        self,
+        submaps: Iterable[TMap],
+    ) -> None:
+        """Initialize.
+
+        Arguments:
+        ---------
+        submaps:
+            Trajectory map that will be applied to each AugmentedTrajectory.
+
+        """
+        self.submaps: Final = list(submaps)
+
+    def __call__(self, t: Trajectory) -> Trajectory:
+        """Map a Trajectory.
+
+        Each underlying TMap is applied (starting with the right-most map).
+
+        """
+        result = t
+        for mapping in reversed(self.submaps):
+            result = mapping(result)
+        return result
+
+    def __getitem__(self, idx: int, /) -> TMap:
+        """Extract one of the underlying TMaps."""
+        return self.submaps[idx]
+
+
+class RATMap:
+    """Maps the real portions of an AugmentedTrajectory.
+
+    The augmented particles are _preserved_.
+    """
+
+    def __init__(self, tmap: TMap) -> None:
+        """Initialize.
+
+        Arguments:
+        ---------
+        tmap:
+            TMap applying to the real particles.
+        """
+        self.tmap = tmap
+
+    def __call__(self, t: AugmentedTrajectory) -> Trajectory:
+        """Map a trajectory.
+
+        Note that this function returns a Trajectory and not an AugmentedTrajectory.
+        """
+        # isolate read particles. This includes noise contributions!
+        real_coord_entries = t.coords[:, t.real_slice, :]
+        real_force_entries = t.forces[:, t.real_slice, :]
+        # map real portions
+        coords, forces = self.tmap.map_arrays(real_coord_entries, real_force_entries)
+        # concatenate with noise particles
+        full_coords = np.concatenate([coords, t.coords[:, t.aug_slice, :]], axis=1)
+        full_forces = np.concatenate([forces, t.forces[:, t.aug_slice, :]], axis=1)
+        return Trajectory(coords=full_coords, forces=full_forces)

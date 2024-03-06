@@ -327,6 +327,16 @@ class AugmentedTrajectory(Trajectory):
         """Number of augmenting particles in the system."""
         return self.coords.shape[1] - self.real_coords.shape[1]
 
+    @property
+    def real_slice(self) -> slice:
+        """Slice (across site axis) that returns entries corresponding to real sites."""
+        return slice(0, self.n_real_sites)
+
+    @property
+    def aug_slice(self) -> slice:
+        """Slice (across site axis) that returns entries corresponding to aug sites."""
+        return slice(self.n_real_sites, self.n_real_sites + self.n_aug_sites)
+
     def refresh(
         self,
     ) -> None:
