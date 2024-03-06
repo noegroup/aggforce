@@ -98,8 +98,15 @@ class LinearMap:
         """
         if isinstance(mapping, np.ndarray) and len(mapping.shape) == 2:
             if n_fg_sites is not None:
-                raise ValueError()
+                raise ValueError(
+                    "Cannot specify n_fg_sites when mapping is ArrayLike. "
+                    "Let it be inferred."
+                )
             self._standard_matrix = mapping
+            if len(self.standard_matrix.shape) != 2:
+                raise ValueError(
+                    f"mapping ({mapping}) does not cast into a 2-d numpy array."
+                )
         elif hasattr(mapping, "__iter__"):
             # assume we are in the case of iterable of lists
             if n_fg_sites is None:
@@ -113,7 +120,7 @@ class LinearMap:
                 mapping_mat[site, :] = local_map
             self._standard_matrix = mapping_mat
         else:
-            raise ValueError()
+            raise ValueError("Cannot understanding mapping f{mapping}.")
 
     @property
     def standard_matrix(self) -> np.ndarray:
@@ -123,12 +130,12 @@ class LinearMap:
     @property
     def n_cg_sites(self) -> int:
         r"""Number of coarse-grained sites in output of map."""
-        return self._standard_matrix.shape[0]
+        return self.standard_matrix.shape[0]
 
     @property
     def n_fg_sites(self) -> int:
         r"""Number of fine-grained sites in input of map."""
-        return self._standard_matrix.shape[1]
+        return self.standard_matrix.shape[1]
 
     @property
     def participating_fg(self) -> List[List[int]]:
@@ -162,6 +169,37 @@ class LinearMap:
         map.
         """
         return trjdot(points, self.standard_matrix)
+
+    def flat_call(self, flattened: np.ndarray) -> np.ndarray:
+        """Apply map to pre-flattened array.
+
+        Array is reshaped, mapped, and then reshaped.
+
+        Arguments:
+        ---------
+        flattened:
+            2-D array of shape (n_frames,n_fg_sites*n_dim). Likely created by
+            flattening a matrix of shape (n_frames,n_fg_sites*n_dim).
+
+        Returns:
+        -------
+        Returns mapped array of shape (n_frames,n_cg_sites*n_dim).
+
+        """
+        shape = flattened.shape
+        if len(shape) == 3:
+            raise ValueError(f"Expected array of rank 2; got array with shape {shape}.")
+        if flattened.shape[1] % self.n_dim != 0:
+            raise ValueError(
+                f"Array of shape {shape} can't be reshaped with dim of f{self.n_dim}."
+            )
+        reshaped = flattened.reshape(
+            (flattened.shape[0], flattened.shape[1] // self.n_dim, self.n_dim),
+        )
+        transformed = self(reshaped)
+        return transformed.reshape(
+            (transformed.shape[0], transformed.shape[1] * transformed.shape[2]),
+        )
 
 
 class CLAMap(_Taggable):
