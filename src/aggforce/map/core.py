@@ -218,6 +218,15 @@ class LinearMap:
         """LinearMap defined by adding standard_matrices."""
         return LinearMap(mapping=self.standard_matrix + lm.standard_matrix)
 
+    def astype(self, *args, **kwargs) -> "LinearMap":
+        """Convert to a given precision as determined by arguments.
+
+        standard_matrix is converted to the stated dtype in the returned
+        instance.  Arguments are passed to np astype. Setting copy to False may
+        reduce copies, but may return instances with shared references.
+        """
+        return self.__class__(mapping=self.standard_matrix.astype(*args, **kwargs))
+
 
 class CLAMap(_Taggable):
     r"""Provide representation of a Co-Local Affine map.

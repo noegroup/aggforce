@@ -5,6 +5,7 @@ decorators.
 """
 from typing import Final, Any
 import numpy as np
+from numpy import float32
 import pytest
 from aggforce import (
     LinearMap,
@@ -16,6 +17,9 @@ N_CG_SITES: Final = 5
 N_DIM: Final = 3
 
 JAXNP_TOL: Final = 1e-6
+
+TOL: Final = 1e-4
+FINE_TOL: Final = 1e-12
 
 # this seeds some portions of the randomness of these tests, but not be
 # complete.
@@ -109,3 +113,65 @@ def test_flat_linearmap(
     )
     preflattened_mapped = lmap.flat_call(flattened)
     assert np.allclose(preflattened_mapped, postflattened_mapped)
+
+
+def test_linearmap_precision_direct(random_cgmap_matrix: np.ndarray) -> None:
+    r"""Test downgrading precision of LinearMap instances.
+
+    Compares with manual casting.
+
+    """
+    lmap = LinearMap(mapping=random_cgmap_matrix)
+
+    difference = _l2(
+        lmap.astype(float32).standard_matrix, lmap.standard_matrix.astype(float32)
+    )
+
+    assert difference < FINE_TOL
+
+
+def test_linearmap_precision_mapping(
+    random_fg_positions: np.ndarray, random_cgmap_matrix: np.ndarray
+) -> None:
+    r"""Test downgrading precision of LinearMap instances.
+
+    Compares with mapped output of float64 LinearMap.
+
+    """
+    lmap = LinearMap(mapping=random_cgmap_matrix)
+    lmap_32 = lmap.astype(float32)
+    random_fg_positions_32 = random_fg_positions.astype(float32)
+
+    mapped_32 = lmap_32(random_fg_positions_32)
+    mapped = lmap(random_fg_positions_32)
+
+    difference = _l2(mapped_32, mapped)
+
+    assert difference < TOL
+
+
+@pytest.mark.jax
+def test_jlinearmap_precision_mapping(
+    random_fg_positions: np.ndarray, random_cgmap_matrix: np.ndarray
+) -> None:
+    r"""Test downgrading precision of JLinearMap instances.
+
+    Compares with LinearMap results.
+
+    """
+    from aggforce.map import JLinearMap
+
+    lmap = LinearMap(mapping=random_cgmap_matrix)
+    jlmap = JLinearMap(mapping=random_cgmap_matrix)
+
+    lmap_32 = lmap.astype(float32)
+    jlmap_32 = jlmap.astype(float32)
+
+    random_fg_positions_32 = random_fg_positions.astype(float32)
+
+    mapped_32 = lmap_32(random_fg_positions_32)
+    jmapped_32 = jlmap_32(random_fg_positions_32)
+
+    difference = _l2(mapped_32, jmapped_32)
+
+    assert difference < TOL

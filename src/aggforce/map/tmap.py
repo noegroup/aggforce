@@ -3,13 +3,16 @@ r"""Provides maps for trajectory objects.
 These objects effectively map coordinates and forces together.
 """
 
-from typing import Tuple, Callable, Final, Iterable
+from typing import Tuple, Callable, Final, Iterable, TypeVar
 from abc import ABC, abstractmethod
 import numpy as np
 from ..trajectory import Trajectory, AugmentedTrajectory, Augmenter
 from .core import CLAMap
 
 ArrayTransform = Callable[[np.ndarray], np.ndarray]
+
+
+_T_TMap = TypeVar("_T_TMap", bound="TMap")
 
 
 class TMap(ABC):
@@ -51,6 +54,17 @@ class TMap(ABC):
         t = Trajectory(coords=coords, forces=forces)
         derived = self(t)
         return (derived.coords, derived.forces)
+
+    @abstractmethod
+    def astype(self: _T_TMap, *args, **kwargs) -> _T_TMap:
+        """Convert a TMap to a given type (numpy precision).
+
+        The exact meaning of the type of a TMap depends on the implementation.
+        However, if a TMap of type d is applied to input of type d, the
+        output should have dtype d.
+
+        Arguments are likely passed to numpy.astype calls.
+        """
 
 
 class SeperableTMap(TMap):
@@ -94,6 +108,28 @@ class SeperableTMap(TMap):
         new_forces = self.force_map(t.forces)
         return Trajectory(coords=new_coords, forces=new_forces)
 
+    # we do not make this class generic, as unless it is overridden in a future
+    # subclass, the returned type will not change.
+    def astype(self, *args, **kwargs) -> "SeperableTMap":
+        """Convert a SeperableTMap to a given type (numpy precision).
+
+        This requires the underlying coord_map and force_map to themselves have
+        a suitable astype method. If calling these underlying methods fails, a
+        TypeError is raised.
+
+        Arguments are passed to underlying tmaps via their astype method.
+        """
+        try:
+            # we are catching the possibility of an attribute error.
+            return self.__class__(
+                coord_map=self.coord_map.astype(*args, **kwargs),  # type: ignore [attr-defined]
+                force_map=self.force_map.astype(*args, **kwargs),  # type: ignore [attr-defined]
+            )
+        except AttributeError as e:
+            raise TypeError(
+                "Underlying coord_map and/or force_map do not support astype."
+            ) from e
+
 
 class CLAFTMap(TMap):
     """Trajectory map encompassing a force CLAMap and coordinate LinearMap.
@@ -121,6 +157,30 @@ class CLAFTMap(TMap):
         new_coords = self.coord_map(t.coords)
         new_forces = self.force_map(points=t.forces, copoints=t.coords)
         return Trajectory(coords=new_coords, forces=new_forces)
+
+    # we do not make this class generic, as unless it is overridden in a future
+    # subclass, the returned type will not change.
+    def astype(self, *args, **kwargs) -> "CLAFTMap":
+        """Convert a CLAFTMap to a given type (numpy precision).
+
+        Arguments are passed to underlying tmaps via their astype method.
+
+        This requires the underlying coord_map and force_map to themselves have
+        a suitable astype method. If calling these underlying methods fails results
+        in an AttributeError, a TypeError is raised.
+        """
+        try:
+            # we are catching the possibility of an attribute error.
+            return self.__class__(
+                coord_map=self.coord_map.astype(*args, **kwargs),  # type: ignore [attr-defined]
+                force_map=self.force_map.astype(*args, **kwargs),  # type: ignore [attr-defined]
+            )
+        except AttributeError as e:
+            raise TypeError(
+                "Underlying coord_map and/or force_map do not support astype."
+            ) from e
+
+        return self.__class__(forces=self.forces.astype(*args, **kwargs))
 
 
 class AugmentedTMap(TMap):
@@ -166,6 +226,18 @@ class AugmentedTMap(TMap):
             t=t, kbt=self.kbt, augmenter=self.augmenter
         )
         return self.tmap(augmented)
+
+    def astype(self, *args, **kwargs) -> "AugmentedTMap":
+        """Convert a AugmentedTMap to a given type (numpy precision).
+
+        Internal TMap and Augmenter instance are converted using their respective astype
+        methods.
+        """
+        return self.__class__(
+            aug_tmap=self.tmap.astype(*args, **kwargs),
+            augmenter=self.augmenter.astype(*args, **kwargs),
+            kbt=self.kbt,
+        )
 
 
 class ComposedTMap(TMap):
@@ -216,6 +288,16 @@ class ComposedTMap(TMap):
     def __getitem__(self, idx: int, /) -> TMap:
         """Extract one of the underlying TMaps."""
         return self.submaps[idx]
+
+    def astype(self, *args, **kwargs) -> "ComposedTMap":
+        """Convert a ComposedTMap to a given type (numpy precision).
+
+        Arguments are passed to each underlying tmap via its astype method.
+        """
+        new_maps = []
+        for mapping in self.submaps:
+            new_maps.append(mapping.astype(*args, **kwargs))
+        return self.__class__(submaps=new_maps)
 
 
 class RATMap:

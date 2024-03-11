@@ -6,8 +6,12 @@ import jax.numpy as jnp
 import jax.random as jrandom
 from jax.scipy.stats.multivariate_normal import logpdf as jglogpdf
 import numpy as np
+from numpy.typing import DTypeLike
 
 from .augment import Augmenter
+
+
+_UNSET: Final = object()
 
 A = TypeVar("A")
 
@@ -124,6 +128,7 @@ class JCondNormal(Augmenter):
         premap: Optional[Callable[[Array], Array]] = None,
         source_postmap: Optional[Callable[[Array], Array]] = None,
         seed: Optional[int] = None,
+        dtype: Union[DTypeLike, object] = _UNSET,
     ) -> None:
         """Initialize.
 
@@ -142,6 +147,22 @@ class JCondNormal(Augmenter):
         seed:
             Seed for jax random number generation. If None, a random integer
             from numpy is used.
+        dtype:
+            Default dtype to use for computations. Note that even if Jax is told
+            to use float64 calculations, it may refuse; doing so will result in
+            warnings, and the output of relevant methods will still obey the
+            stated dtype at the cost of copies. Setting this to None should result
+            in float32 behavior, which is almost certainly the most efficient.
+
+        Note:
+        ----
+        dtype defaults to a special value that will attempt to obtain the
+        desired datatype from the cov argument, and if failing, results in
+        float32. This is done as None implies float64 in astype.  In most
+        instances of jax, float64 will raise many warnings and will not actually
+        cause float64 to be used internally, instead leading to post-operation
+        copies. This is rarely desired.  This default behavior may not match
+        non-jax classes in this library.
 
         """
         if premap is None:
@@ -164,6 +185,16 @@ class JCondNormal(Augmenter):
             self.cov: Optional[Array] = cov
         else:
             self.cov = None
+        if dtype is _UNSET:
+            if isinstance(cov, np.ndarray):
+                self.dtype = cov.dtype
+            else:
+                self.dtype = np.float32
+        else:
+            # there is a type error here because dtype could be an object instance
+            # but not _UNSET. It is hard to imagine this happening in any sane call.
+            # and would violate the documentation of the function.
+            self.dtype = np.dtype(dtype)  # type: ignore [arg-type]
 
     def sample(self, source: np.ndarray) -> np.ndarray:
         """Generate Gaussian samples from an array of means.
@@ -184,9 +215,9 @@ class JCondNormal(Augmenter):
         This method expects and returns numpy arrays.
 
         """
-        flattened = self._flatten(jnp.asarray(source))
+        flattened = self._flatten(jnp.asarray(source, dtype=self.dtype))
         means = self.premap(flattened)
-        return np.asarray(self._unflatten(self._sample(means)))
+        return np.asarray(self._unflatten(self._sample(means)), dtype=self.dtype)
 
     def log_gradient(
         self, source: np.ndarray, generated: np.ndarray
@@ -215,8 +246,8 @@ class JCondNormal(Augmenter):
         This method expects and returns numpy arrays.
 
         """
-        flat_source = self._flatten(jnp.asarray(source))
-        flat_generated = self._flatten(jnp.asarray(generated))
+        flat_source = self._flatten(jnp.asarray(source, dtype=self.dtype))
+        flat_generated = self._flatten(jnp.asarray(generated, dtype=self.dtype))
 
         if self.cov is None:
             raise ValueError(
@@ -233,7 +264,10 @@ class JCondNormal(Augmenter):
 
         post_source_lgrad = self.source_postmap(source_lgrad)
 
-        return (np.asarray(post_source_lgrad), np.asarray(variate_lgrad))
+        return (
+            np.asarray(post_source_lgrad, dtype=self.dtype),
+            np.asarray(variate_lgrad, dtype=self.dtype),
+        )
 
     def _sample(self, means: Array, vectorized: bool = True) -> Array:
         """Generate Gaussian samples given array of means.
@@ -267,7 +301,7 @@ class JCondNormal(Augmenter):
             keys = jrandom.split(self._rkey, num=2)
             self._rkey = keys[0]
             data = jrandom.multivariate_normal(
-                key=keys[1], mean=means, cov=self.cov[None, :]
+                key=keys[1], mean=means, cov=self.cov[None, :], dtype=self.dtype
             )
         else:
             keys = jrandom.split(self._rkey, num=len(means) + 1)
@@ -277,7 +311,7 @@ class JCondNormal(Augmenter):
                 variates.append(
                     jrandom.multivariate_normal(key=key, mean=mean, cov=self.cov)
                 )
-            data = jnp.stack(variates, axis=0)
+            data = jnp.stack(variates, axis=0, dtype=self.dtype)
         return data
 
     def _flatten(self, array: Array) -> Array:
@@ -296,3 +330,35 @@ class JCondNormal(Augmenter):
         return jnp.reshape(
             a=array, newshape=(old_shape[0], old_shape[1] // self.n_dim, self.n_dim)
         )
+
+    def astype(
+        self, dtype: DTypeLike, *args, **kwargs  # noqa: ARG002
+    ) -> "JCondNormal":
+        """Return instance with a specified dtype.
+
+        See dtype argument of init for more information. Note that args and kwargs are
+        ignored; they are provided for compatibility with a numpy.dtype call.
+
+        Arguments:
+        ---------
+        dtype:
+            Passed to init of new instance.
+        *args:
+            Ignored
+        **kwargs:
+            Ignored
+
+        Returns:
+        -------
+        A JCondNormal instance with the dtype set.
+        """
+        new_instance = self.__class__(
+            cov=self._cov,
+            premap=self.premap,
+            source_postmap=self.source_postmap,
+            seed=None,
+            dtype=dtype,
+        )
+        # override random state to match
+        new_instance._rkey = self._rkey  # noqa: SLF001
+        return new_instance
