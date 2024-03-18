@@ -4,12 +4,13 @@ These maps transform fine-grained points to coarse-grained points. Points may be
 positions or forces.
 """
 
-from typing import Union, List, Iterable, Callable, Final, Dict, Optional
-from itertools import combinations, product
+from typing import Union, List, Callable, Final, Dict, Optional
 import numpy as np
 from ..util import trjdot
 
 
+# _Taggable is only used by CLAMap right now, but its a separate class
+# to keep things clear.
 class _Taggable:
     r"""Provides a basic interface for having tags.
 
@@ -97,8 +98,15 @@ class LinearMap:
         """
         if isinstance(mapping, np.ndarray) and len(mapping.shape) == 2:
             if n_fg_sites is not None:
-                raise ValueError()
+                raise ValueError(
+                    "Cannot specify n_fg_sites when mapping is ArrayLike. "
+                    "Let it be inferred."
+                )
             self._standard_matrix = mapping
+            if len(self.standard_matrix.shape) != 2:
+                raise ValueError(
+                    f"mapping ({mapping}) does not cast into a 2-d numpy array."
+                )
         elif hasattr(mapping, "__iter__"):
             # assume we are in the case of iterable of lists
             if n_fg_sites is None:
@@ -112,7 +120,7 @@ class LinearMap:
                 mapping_mat[site, :] = local_map
             self._standard_matrix = mapping_mat
         else:
-            raise ValueError()
+            raise ValueError("Cannot understanding mapping f{mapping}.")
 
     @property
     def standard_matrix(self) -> np.ndarray:
@@ -122,12 +130,12 @@ class LinearMap:
     @property
     def n_cg_sites(self) -> int:
         r"""Number of coarse-grained sites in output of map."""
-        return self._standard_matrix.shape[0]
+        return self.standard_matrix.shape[0]
 
     @property
     def n_fg_sites(self) -> int:
         r"""Number of fine-grained sites in input of map."""
-        return self._standard_matrix.shape[1]
+        return self.standard_matrix.shape[1]
 
     @property
     def participating_fg(self) -> List[List[int]]:
@@ -161,6 +169,63 @@ class LinearMap:
         map.
         """
         return trjdot(points, self.standard_matrix)
+
+    def flat_call(self, flattened: np.ndarray) -> np.ndarray:
+        """Apply map to pre-flattened array.
+
+        Array is reshaped, mapped, and then reshaped.
+
+        Arguments:
+        ---------
+        flattened:
+            2-D array of shape (n_frames,n_fg_sites*n_dim). Likely created by
+            flattening a matrix of shape (n_frames,n_fg_sites*n_dim).
+
+        Returns:
+        -------
+        Returns mapped array of shape (n_frames,n_cg_sites*n_dim).
+
+        """
+        shape = flattened.shape
+        if len(shape) == 3:
+            raise ValueError(f"Expected array of rank 2; got array with shape {shape}.")
+        if flattened.shape[1] % self.n_dim != 0:
+            raise ValueError(
+                f"Array of shape {shape} can't be reshaped with dim of f{self.n_dim}."
+            )
+        reshaped = flattened.reshape(
+            (flattened.shape[0], flattened.shape[1] // self.n_dim, self.n_dim),
+        )
+        transformed = self(reshaped)
+        return transformed.reshape(
+            (transformed.shape[0], transformed.shape[1] * transformed.shape[2]),
+        )
+
+    @property
+    def T(self) -> "LinearMap":
+        """LinearMap defined by transpose of its standard matrix."""
+        return LinearMap(mapping=self.standard_matrix.T)
+
+    def __matmul__(self, lm: "LinearMap", /) -> "LinearMap":
+        """LinearMap defined by multiplying the standard_matrix's of arguments."""
+        return LinearMap(mapping=self.standard_matrix @ lm.standard_matrix)
+
+    def __rmul__(self, c: float, /) -> "LinearMap":
+        """LinearMap defined by multiplying the standard_matrix's with a coefficient."""
+        return LinearMap(mapping=c * self.standard_matrix)
+
+    def __add__(self, lm: "LinearMap", /) -> "LinearMap":
+        """LinearMap defined by adding standard_matrices."""
+        return LinearMap(mapping=self.standard_matrix + lm.standard_matrix)
+
+    def astype(self, *args, **kwargs) -> "LinearMap":
+        """Convert to a given precision as determined by arguments.
+
+        standard_matrix is converted to the stated dtype in the returned
+        instance.  Arguments are passed to np astype. Setting copy to False may
+        reduce copies, but may return instances with shared references.
+        """
+        return self.__class__(mapping=self.standard_matrix.astype(*args, **kwargs))
 
 
 class CLAMap(_Taggable):
@@ -274,47 +339,3 @@ class CLAMap(_Taggable):
         scale = self.scale(copoints)
         trans = self.trans(copoints)
         return trjdot(points, scale) + trans
-
-
-def smear_map(
-    site_groups: Iterable[Iterable[int]],
-    n_sites: int,
-    return_mapping_matrix: bool = False,
-) -> Union[LinearMap, np.ndarray]:
-    """LinearMap which replaces the groups of atoms with their mean.
-
-    Arguments:
-    ---------
-    site_groups (list of iterables of integers):
-        List of iterables, each member of which describes a group of sites
-        which must be "smeared" together.
-    n_sites (integer):
-        Total number of sites in the system
-    return_mapping_matrix (boolean):
-        If true, instead of a LinearMap, the mapping matrix itself is returned.
-
-    Returns:
-    -------
-    LinearMap instance or 2-dimensional numpy.ndarray
-
-    Notes:
-    -----
-    This map does _not_ reduce the dimensionality of a system;
-    instead, every modified position is replaced with the corresponding mean.
-    """
-    site_sets = [set(x) for x in site_groups]
-
-    for pair in combinations(site_sets, 2):
-        if pair[0].intersection(pair[1]):
-            raise ValueError(
-                "Site definitions in site_groups overlap; merge before passing."
-            )
-
-    matrix = np.zeros((n_sites, n_sites), dtype=np.float32)
-    np.fill_diagonal(matrix, 1)
-    for group in site_sets:
-        inds0, inds1 = zip(*product(group, group))
-        matrix[inds0, inds1] = 1 / len(group)
-    if return_mapping_matrix:
-        return matrix
-    return LinearMap(mapping=matrix)

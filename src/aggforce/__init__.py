@@ -19,3 +19,9 @@ from .agg import project_forces
 from .constraints import guess_pairwise_constraints
 from .qp import qp_linear_map, constraint_aware_uni_map
 from .map import LinearMap
+
+# in case jax is not installed
+try:
+    from .qp import joptgauss_map, stagedjoptgauss_map
+except ImportError:
+    pass

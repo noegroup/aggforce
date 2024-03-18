@@ -1,15 +1,17 @@
 """Jax-based Trajectory Augmenters."""
 from typing import List, TypeVar, Optional, Union, Tuple, Callable, Final
-from functools import partial
 
 from jax import Array, grad, vmap
 import jax.numpy as jnp
 import jax.random as jrandom
 from jax.scipy.stats.multivariate_normal import logpdf as jglogpdf
 import numpy as np
+from numpy.typing import DTypeLike
 
 from .augment import Augmenter
-from ..map import LinearMap, jaxify_linearmap
+
+
+_UNSET: Final = object()
 
 A = TypeVar("A")
 
@@ -17,6 +19,29 @@ A = TypeVar("A")
 def _ident(x: A, /) -> A:
     """Identity."""
     return x
+
+
+class _perframe_wrap:
+    """Transforms callable acting on chunks to one acting on frames.
+
+    If I have a function that acts on trajectory arrays of size
+    (n_frames,n_sites,n_dims), this class creates a callable that acts arrays of size
+    (n_sites,n_dims), where the output the function evaluated on an array of shape
+    (0,n_sites,n_dims) and then index along the first axis.
+
+    This is needed for vmap calls in this module.
+    """
+
+    def __init__(self, call: Callable[[Array], Array]) -> None:
+        """Initialize.
+
+        call is the callable to be wrapped.
+        """
+        self.call = call
+
+    def __call__(self, target: Array) -> Array:
+        expanded_target = target[None, ...]
+        return self.call(expanded_target)[0]
 
 
 # we manipulate jax functions to create a function that provides the needed log
@@ -67,6 +92,14 @@ class JCondNormal(Augmenter):
     where `A` is a matrix specified by a Linear Map object and E is a given
     covariance matrix. E can be set via a scalar to be diagonal.
 
+    premap is a callable which is applied to _flattened_ forms of the input
+    coordinates. See _flatten and _unflatten for the flattening operation.
+    It typically reduces the dimension of the input. postmap is applied to the
+    returned forces/scores on the input coordinates, and again must act
+    on flat arrays. While premap is usually specified, postmap only has
+    use in cross resolution cases and should be used with extreme care: the
+    gradients returned with postmap set to None are more intuitive.
+
     Note:
     ----
     This object uses Jax for derivatives, but all public methods/attributes
@@ -92,32 +125,59 @@ class JCondNormal(Augmenter):
     def __init__(
         self,
         cov: Union[float, np.ndarray],
-        premap: Optional[LinearMap] = None,
-        seed: int = 0,
+        premap: Optional[Callable[[Array], Array]] = None,
+        source_postmap: Optional[Callable[[Array], Array]] = None,
+        seed: Optional[int] = None,
+        dtype: Union[DTypeLike, object] = _UNSET,
     ) -> None:
         """Initialize.
 
         Arguments:
         ---------
         cov:
-            Specifies the covariance matrix of the
+            Specifies the covariance matrix of the added gaussian noise. Note
+            that this must be of shape (n_particles*n_dim,n_particles*n_dim).
         premap:
-            A LinearMap object used when creating the augmenting variables.
-            Note that the dimension of the output of this linear map controls
+            Callable object used when creating the augmenting variables.
+            Note that the dimension of the output of this function controls
             the dimension of the augmenting variables. See class description.
+        source_postmap:
+            Callable that is applied to the forces return on the source particles
+            in log_gradient. This option
         seed:
-            Seed for jax random number generation.
+            Seed for jax random number generation. If None, a random integer
+            from numpy is used.
+        dtype:
+            Default dtype to use for computations. Note that even if Jax is told
+            to use float64 calculations, it may refuse; doing so will result in
+            warnings, and the output of relevant methods will still obey the
+            stated dtype at the cost of copies. Setting this to None should result
+            in float32 behavior, which is almost certainly the most efficient.
+
+        Note:
+        ----
+        dtype defaults to a special value that will attempt to obtain the
+        desired datatype from the cov argument, and if failing, results in
+        float32. This is done as None implies float64 in astype.  In most
+        instances of jax, float64 will raise many warnings and will not actually
+        cause float64 to be used internally, instead leading to post-operation
+        copies. This is rarely desired.  This default behavior may not match
+        non-jax classes in this library.
 
         """
         if premap is None:
-            self.flattened_premap: Callable[[Array], Array] = _ident
+            self.premap: Callable[[Array], Array] = _ident
         else:
-            self.flattened_premap = jaxify_linearmap(
-                premap,
-                flattened=True,
-                n_dim=self.n_dim,
-            )
-        self._rkey, _ = jrandom.split(jrandom.PRNGKey(seed))
+            self.premap = premap
+        if source_postmap is None:
+            self.source_postmap: Callable[[Array], Array] = _ident
+        else:
+            self.source_postmap = source_postmap
+        if seed is None:
+            true_seed = np.random.default_rng().integers(low=0, high=int(1e6))
+        else:
+            true_seed = seed
+        self._rkey, _ = jrandom.split(jrandom.PRNGKey(true_seed))
         self._cov = cov
         # if cov is a float, we need to defer creating the covariance matrix until
         # we see the dimensionality of samples.
@@ -125,6 +185,16 @@ class JCondNormal(Augmenter):
             self.cov: Optional[Array] = cov
         else:
             self.cov = None
+        if dtype is _UNSET:
+            if isinstance(cov, np.ndarray):
+                self.dtype = cov.dtype
+            else:
+                self.dtype = np.float32
+        else:
+            # there is a type error here because dtype could be an object instance
+            # but not _UNSET. It is hard to imagine this happening in any sane call.
+            # and would violate the documentation of the function.
+            self.dtype = np.dtype(dtype)  # type: ignore [arg-type]
 
     def sample(self, source: np.ndarray) -> np.ndarray:
         """Generate Gaussian samples from an array of means.
@@ -145,9 +215,9 @@ class JCondNormal(Augmenter):
         This method expects and returns numpy arrays.
 
         """
-        flattened = self._flatten(jnp.asarray(source))
-        means = self.flattened_premap(flattened)
-        return np.asarray(self._unflatten(self._sample(means)))
+        flattened = self._flatten(jnp.asarray(source, dtype=self.dtype))
+        means = self.premap(flattened)
+        return np.asarray(self._unflatten(self._sample(means)), dtype=self.dtype)
 
     def log_gradient(
         self, source: np.ndarray, generated: np.ndarray
@@ -176,8 +246,8 @@ class JCondNormal(Augmenter):
         This method expects and returns numpy arrays.
 
         """
-        flat_source = self._flatten(jnp.asarray(source))
-        flat_generated = self._flatten(jnp.asarray(generated))
+        flat_source = self._flatten(jnp.asarray(source, dtype=self.dtype))
+        flat_generated = self._flatten(jnp.asarray(generated, dtype=self.dtype))
 
         if self.cov is None:
             raise ValueError(
@@ -185,14 +255,19 @@ class JCondNormal(Augmenter):
                 " cov at init, or call sample prior to log_gradient."
             )
         else:
-            per_frame_premap = partial(self.flattened_premap, perframe=True)
+            per_frame_premap = _perframe_wrap(self.premap)
             flat_lgrads = _mvgaussian_prefunc_logpdf_grad_vec(
                 flat_generated, flat_source, per_frame_premap, self.cov
             )
             variate_lgrad = self._unflatten(flat_lgrads[0])
             source_lgrad = self._unflatten(flat_lgrads[1])
 
-        return (np.asarray(source_lgrad), np.asarray(variate_lgrad))
+        post_source_lgrad = self.source_postmap(source_lgrad)
+
+        return (
+            np.asarray(post_source_lgrad, dtype=self.dtype),
+            np.asarray(variate_lgrad, dtype=self.dtype),
+        )
 
     def _sample(self, means: Array, vectorized: bool = True) -> Array:
         """Generate Gaussian samples given array of means.
@@ -226,7 +301,7 @@ class JCondNormal(Augmenter):
             keys = jrandom.split(self._rkey, num=2)
             self._rkey = keys[0]
             data = jrandom.multivariate_normal(
-                key=keys[1], mean=means, cov=self.cov[None, :]
+                key=keys[1], mean=means, cov=self.cov[None, :], dtype=self.dtype
             )
         else:
             keys = jrandom.split(self._rkey, num=len(means) + 1)
@@ -236,7 +311,7 @@ class JCondNormal(Augmenter):
                 variates.append(
                     jrandom.multivariate_normal(key=key, mean=mean, cov=self.cov)
                 )
-            data = jnp.stack(variates, axis=0)
+            data = jnp.stack(variates, axis=0, dtype=self.dtype)
         return data
 
     def _flatten(self, array: Array) -> Array:
@@ -255,3 +330,35 @@ class JCondNormal(Augmenter):
         return jnp.reshape(
             a=array, newshape=(old_shape[0], old_shape[1] // self.n_dim, self.n_dim)
         )
+
+    def astype(
+        self, dtype: DTypeLike, *args, **kwargs  # noqa: ARG002
+    ) -> "JCondNormal":
+        """Return instance with a specified dtype.
+
+        See dtype argument of init for more information. Note that args and kwargs are
+        ignored; they are provided for compatibility with a numpy.dtype call.
+
+        Arguments:
+        ---------
+        dtype:
+            Passed to init of new instance.
+        *args:
+            Ignored
+        **kwargs:
+            Ignored
+
+        Returns:
+        -------
+        A JCondNormal instance with the dtype set.
+        """
+        new_instance = self.__class__(
+            cov=self._cov,
+            premap=self.premap,
+            source_postmap=self.source_postmap,
+            seed=None,
+            dtype=dtype,
+        )
+        # override random state to match
+        new_instance._rkey = self._rkey  # noqa: SLF001
+        return new_instance

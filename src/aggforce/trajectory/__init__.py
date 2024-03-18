@@ -6,5 +6,5 @@ from .augment import Augmenter
 
 try:
     from .jaxgausstraj import JCondNormal
-except ModuleNotFoundError:
+except ImportError:
     pass

@@ -3,9 +3,11 @@
 Augmenters are used to extend the phase space of Trajectory objects.
 """
 
+from typing import Tuple, TypeVar
 from abc import ABC, abstractmethod
-from typing import Tuple
 from numpy import ndarray
+
+_T_Augmenter = TypeVar("_T_Augmenter", bound="Augmenter")
 
 
 class Augmenter(ABC):
@@ -78,5 +80,31 @@ class Augmenter(ABC):
         Tuple, where first element is the portion of the log gradient taken with respect
         to `source` and the second is the log gradient with respect to `generated`. Both
         are taken at the position given by `source` and `generated` combined.
+
+        """
+
+    @abstractmethod
+    def astype(self: _T_Augmenter, *args, **kwargs) -> _T_Augmenter:
+        r"""Return new instance with a set numerical precision.
+
+        Interpretation of type is up to the implementation; however, if set to
+        type to d, then application to d-type input should result in d type
+        output. Arguments are likely passed to calls such as np.dtype or asarray.
+
+        Arguments:
+        ---------
+        *args:
+            Likely passed to internal calls to numpy.astype or asarray.
+        **kwargs:
+            Likely passed to internal calls to numpy.astype or asarray.
+
+        Returns:
+        -------
+        Instance of the same type, somehow set to have a given precision.
+
+        Notes:
+        -----
+        We do not enforce a type attribute for dtype, etc. This function is of primary
+        use to force application not to promote input values to e.g. float64.
 
         """

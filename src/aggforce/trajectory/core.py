@@ -1,9 +1,23 @@
 """Provides tools and definitions for Trajectory objects."""
 
-from typing import Tuple, Optional, Callable, overload, Literal, TypeVar, Any, NoReturn
+from typing import (
+    Tuple,
+    Optional,
+    Callable,
+    overload,
+    Literal,
+    TypeVar,
+    Any,
+    NoReturn,
+)
 from copy import deepcopy
-from numpy import ndarray, concatenate
+import numpy as np
 from .augment import Augmenter
+
+
+_T_FTraj = TypeVar("_T_FTraj", bound="ForcesOnlyTrajectory")
+_T_Traj = TypeVar("_T_Traj", bound="Trajectory")
+_T_ATraj = TypeVar("_T_ATraj", bound="AugmentedTrajectory")
 
 
 class ForcesOnlyTrajectory:
@@ -13,7 +27,7 @@ class ForcesOnlyTrajectory:
     more information.
     """
 
-    def __init__(self, forces: ndarray) -> None:
+    def __init__(self, forces: np.ndarray) -> None:
         """Initialize.
 
         Arguments:
@@ -53,10 +67,20 @@ class ForcesOnlyTrajectory:
         new_forces = self.forces[index]
         return self.__class__(forces=new_forces)
 
+    # we do not generically type this because unless it is overridden in a subclass, it
+    # will indeed always return a
     def copy(self) -> "ForcesOnlyTrajectory":
         """Copy a trajectory object."""
         new_forces = self.forces.copy()
         return self.__class__(forces=new_forces)
+
+    def astype(self, *args, **kwargs) -> "ForcesOnlyTrajectory":
+        """Convert to a given dtype.
+
+        Arguments are passed to np astype. Setting copy to False may reduce copies, but
+        may return instances with shared references.
+        """
+        return self.__class__(forces=self.forces.astype(*args, **kwargs))
 
 
 class Trajectory(ForcesOnlyTrajectory):
@@ -92,7 +116,7 @@ class Trajectory(ForcesOnlyTrajectory):
 
     """
 
-    def __init__(self, coords: ndarray, forces: ndarray) -> None:
+    def __init__(self, coords: np.ndarray, forces: np.ndarray) -> None:
         """Initialize.
 
         Arguments:
@@ -126,6 +150,17 @@ class Trajectory(ForcesOnlyTrajectory):
         new_coords = self.coords.copy()
         new_forces = self.forces.copy()
         return Trajectory(coords=new_coords, forces=new_forces)
+
+    def astype(self, *args, **kwargs) -> "Trajectory":
+        """Convert to a given dtype.
+
+        Arguments are passed to np astype. Setting copy to False may reduce copies, but
+        may return instances with shared references.
+        """
+        return self.__class__(
+            coords=self.coords.astype(*args, **kwargs),
+            forces=self.forces.astype(*args, **kwargs),
+        )
 
 
 A = TypeVar("A")
@@ -211,11 +246,11 @@ class AugmentedTrajectory(Trajectory):
 
     def __init__(
         self,
-        coords: ndarray,
-        forces: ndarray,
+        coords: np.ndarray,
+        forces: np.ndarray,
         augmenter: Augmenter,
         kbt: float,
-        override_first_augment: Optional[Tuple[ndarray, ndarray]] = None,
+        override_first_augment: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     ) -> None:
         """Initialize.
 
@@ -256,7 +291,9 @@ class AugmentedTrajectory(Trajectory):
         # create trajectory using augmented coordinates and forces
         super().__init__(coords=ext_coords, forces=ext_forces)
 
-    def _augment(self, coords: ndarray, forces: ndarray) -> Tuple[ndarray, ndarray]:
+    def _augment(
+        self, coords: np.ndarray, forces: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Create an instance of augmented coordinates and forces.
 
         This isn't public because the more universal approach is to call .refresh
@@ -289,12 +326,12 @@ class AugmentedTrajectory(Trajectory):
         )
         aug_forces = self.kbt * aug_lgrad
         real_forces_corrected = forces + self.kbt * real_lgrad_correction
-        full_coords = concatenate([coords, aug_coords], axis=1)
-        full_forces = concatenate([real_forces_corrected, aug_forces], axis=1)
+        full_coords = np.concatenate([coords, aug_coords], axis=1)
+        full_forces = np.concatenate([real_forces_corrected, aug_forces], axis=1)
         return (full_coords, full_forces)
 
     @property
-    def real_coords(self) -> ndarray:
+    def real_coords(self) -> np.ndarray:
         """Return the coordinates of the real particles."""
         return self.coords[:, : self._real_n_sites, :]
 
@@ -304,7 +341,7 @@ class AugmentedTrajectory(Trajectory):
         raise ValueError("real_positions cannot be reassigned.")
 
     @property
-    def real_forces(self) -> ndarray:
+    def real_forces(self) -> np.ndarray:
         """Return the coordinates of the real particles.
 
         Note that this entry's forces are as if no augmentation had been performed,
@@ -316,6 +353,26 @@ class AugmentedTrajectory(Trajectory):
     def real_forces(self, value: Any) -> NoReturn:  # noqa: ARG002
         """Real forces cannot be set directly."""
         raise ValueError("real_forces cannot be reassigned.")
+
+    @property
+    def n_real_sites(self) -> int:
+        """Number of real particles in the system."""
+        return self.real_coords.shape[1]
+
+    @property
+    def n_aug_sites(self) -> int:
+        """Number of augmenting particles in the system."""
+        return self.coords.shape[1] - self.real_coords.shape[1]
+
+    @property
+    def real_slice(self) -> slice:
+        """Slice (across site axis) that returns entries corresponding to real sites."""
+        return slice(0, self.n_real_sites)
+
+    @property
+    def aug_slice(self) -> slice:
+        """Slice (across site axis) that returns entries corresponding to aug sites."""
+        return slice(self.n_real_sites, self.n_real_sites + self.n_aug_sites)
 
     def refresh(
         self,
@@ -364,10 +421,31 @@ class AugmentedTrajectory(Trajectory):
         )
         return ob_copy
 
+    def astype(self, *args, **kwargs) -> "AugmentedTrajectory":
+        """Convert to a given dtype.
+
+        Arguments are passed to np astype. Setting copy to False may reduce
+        copies, but may return instances with shared references. Augmenter
+        instance is always copied.  Note that if Augmenter instances does not
+        keep type consistency between its arguments and output, types may
+        change upon refresh (or intermediate copies may occur).
+        """
+        ob_copy = self.__class__(
+            coords=self.real_coords.astype(*args, **kwargs),
+            forces=self.real_forces.astype(*args, **kwargs),
+            augmenter=self.augmenter.astype(*args, **kwargs),
+            kbt=self.kbt,
+            override_first_augment=(
+                self.coords.astype(*args, **kwargs),
+                self.forces.astype(*args, **kwargs),
+            ),
+        )
+        return ob_copy
+
     @overload
     def pullback(
         self, C: Callable[["AugmentedTrajectory"], A], array: Literal[True]
-    ) -> Callable[[ndarray, ndarray], A]:
+    ) -> Callable[[np.ndarray, np.ndarray], A]:
         ...
 
     @overload
@@ -414,7 +492,7 @@ class AugmentedTrajectory(Trajectory):
         """
         if array:
 
-            def array_wrapped(coords: ndarray, forces: ndarray) -> A:
+            def array_wrapped(coords: np.ndarray, forces: np.ndarray) -> A:
                 at = self.__class__(
                     coords=coords, forces=forces, augmenter=self.augmenter, kbt=self.kbt
                 )
