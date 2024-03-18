@@ -1,11 +1,15 @@
 """Demonstrates generating a Gaussian map for Chignolin.
 
-NOTE: You must have JAX installed to run this script.
+NOTE: You must have JAX and mdtraj installed to run this script.
+
+This is an example script that shows how to load data, find bond constraints,
+and create a map that injects Gaussian noise (and modifies the forces). Two
+methods are demonstrated. No output or analysis is performed on the produced
+maps.
 """
 
 from typing import (
     Tuple,
-    Any,
 )
 import re
 from pathlib import Path
@@ -17,8 +21,10 @@ from aggforce import (
     LinearMap,
     guess_pairwise_constraints,
     joptgauss_map,
+    stagedjoptgauss_map,
     project_forces,
 )
+from aggforce.map import TMap
 
 
 def get_data() -> Tuple[np.ndarray, np.ndarray, md.Trajectory, float]:
@@ -96,30 +102,49 @@ def gen_config_map(pdb: md.Trajectory, string: str) -> LinearMap:
     return LinearMap(inds, n_fg_sites=pdb.xyz.shape[1])
 
 
-def main() -> Any:
-    """Create Gaussian map."""
+def main() -> Tuple[TMap,...]:
+    """Create Gaussian maps.
+
+    This function
+    """
     coords, forces, pdb, kbt = get_data()
-    # cmap is the configurational coarse-grained map
+    # cmap is the configurational coarse-grained map, we create a carbon alpha map
     cmap = gen_config_map(pdb, "CA$")
     # guess molecular constraints
     constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 
-    optim_results = project_forces(
+    #create a simple gaussian map
+    results = project_forces(
         coords=coords,
         forces=forces,
         coord_map=cmap,
         constrained_inds=constraints,
         kbt=kbt,
-        method=joptgauss_map,
+        method=joptgauss_map, # specifies 
         l2_regularization=1e1,
-        var=0.01,
+        var=0.003, # sets variance of the added gaussian noise
     )
+    # results is a dict with the derived map under "tmap"
+
+    #create a staged gaussian map
+    staged_results = project_forces(
+        coords=coords,
+        forces=forces,
+        coord_map=cmap,
+        constrained_inds=constraints,
+        kbt=kbt,
+        method=stagedjoptgauss_map, # specifies the staged map
+        premap_l2_regularization=1e1, # regularization works differently
+        l2_regularization=1e0,
+        var=0.003,
+    )
+    # results is a dict with the derived map under "tmap"
 
     # this is the optimized trajectory map
-    return optim_results["tmap"]
+    return (results["tmap"], staged_results["tmap"])
 
 
 if __name__ == "__main__":
     """Create Gaussian map."""
-    main()
+    mapping = main()
     # we do nothing with the output
