@@ -373,19 +373,6 @@ class JCondNormal(Augmenter):
             - premap: must be  `_ident`
             - source_postmap: must be _ident`
         """
-        # check the arguments
-        if not _is_identity_map(self.premap):
-            raise NotImplementedError(
-                "`SimpleCondNormal` is only implemented for "
-                "cases where `premap` is simply the identity "
-                "transform."
-            )
-        if not _is_identity_map(self.source_postmap):
-            raise NotImplementedError(
-                "`SimpleCondNormal` is only implemented for "
-                "cases where `source_postmap` is simply the "
-                "identity transform."
-            )
         if not isinstance(self._cov, float):
             raise ValueError(
                 "Only can convert to SimpleCondNormal for "
@@ -393,10 +380,10 @@ class JCondNormal(Augmenter):
             )
         if self.premap is not _ident:
             raise ValueError(
-                "Only can convert to SimpleCondNormal for " "identity premap."
+                "Only can convert to SimpleCondNormal for identity premap."
             )
         if self.source_postmap is not _ident:
             raise ValueError(
-                "Only can convert to SimpleCondNormal for " "identity source_postmap."
+                "Only can convert to SimpleCondNormal for identity source_postmap."
             )
         return SimpleCondNormal(var=self._cov, dtype=self.dtype)
