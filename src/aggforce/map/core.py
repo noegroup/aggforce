@@ -152,6 +152,20 @@ class LinearMap:
             table[cg_ind].append(fg_ind)
         return table
 
+    def close_to_identity(self, threshold: float = 1e-8) -> bool:
+        r"""Check to see if internal matrix is close to the identity.
+
+        Returns False is not square or if Frobenius norm of distance to identity is more
+        than threshold.
+        """
+        internal_shape = self.standard_matrix.shape
+        if internal_shape[0] != internal_shape[0]:
+            return False
+        ident_like = np.identity(internal_shape[0], dtype=self.standard_matrix.dtype)
+        if ((ident_like - self.standard_matrix) ** 2).sum() ** (0.5) > threshold:
+            return False
+        return True
+
     def __call__(
         self,
         points: np.ndarray,

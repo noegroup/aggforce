@@ -1,6 +1,5 @@
 """Jax-based Trajectory Augmenters."""
 from typing import List, TypeVar, Optional, Union, Tuple, Callable, Final
-
 from jax import Array, grad, vmap
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -20,6 +19,20 @@ A = TypeVar("A")
 def _ident(x: A, /) -> A:
     """Identity."""
     return x
+
+
+def _is_close_to_ident(c: Callable) -> bool:
+    """Partial check to see if c is the identity.
+
+    True means it is indeed close, False means that could not be confirmed.
+    """
+    # to preemptively avoid circular deps.
+    from ..map import LinearMap
+
+    if isinstance(c, LinearMap):
+        return c.close_to_identity()
+    else:
+        return c is _ident
 
 
 class _perframe_wrap:
@@ -364,7 +377,7 @@ class JCondNormal(Augmenter):
         new_instance._rkey = self._rkey  # noqa: SLF001
         return new_instance
 
-    def to_SimpleCondNormal(self) -> "SimpleCondNormal":
+    def to_SimpleCondNormal(self) -> SimpleCondNormal:
         """Create TorchCondNormal from JCondNormal.
 
         Attempts to create SimpleCondNormal from the current instance. This only works
@@ -378,11 +391,11 @@ class JCondNormal(Augmenter):
                 "Only can convert to SimpleCondNormal for "
                 "scalar-specified covariance."
             )
-        if self.premap is not _ident:
+        if not _is_close_to_ident(self.premap):
             raise ValueError(
                 "Only can convert to SimpleCondNormal for identity premap."
             )
-        if self.source_postmap is not _ident:
+        if not _is_close_to_ident(self.source_postmap):
             raise ValueError(
                 "Only can convert to SimpleCondNormal for identity source_postmap."
             )
