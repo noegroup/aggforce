@@ -1,8 +1,6 @@
-r"""Tests Gaussian Trajectory augmenter `SimpleCondNormal` against the more general but
-slower `JCondNormal`.
-"""
+r"""Test `SimpleCondNormal` against `JCondNormal`."""
 
-from typing import Tuple, Final
+from typing import Final, Tuple
 
 import numpy as np
 import pytest
@@ -14,12 +12,14 @@ rseed: Final = 42100
 
 @pytest.mark.jax
 def test_simple_cond_normal(seed: int = rseed) -> None:
+    """Test to see if log gradients match for JCondNormal and SimpleCondNormal."""
+    NOISE_LEVEL: Final = 0.3
+    COORD_SHAPE: Tuple = (10, 5, 3)
     from aggforce.trajectory.jaxgausstraj import JCondNormal
-    from aggforce.trajectory.simplegausstraj import SimpleCondNormal
 
-    jaugmenter = JCondNormal(0.3, seed=seed)
-    saugmenter = SimpleCondNormal.from_jcondnormal(jaugmenter)
-    coords = np.zeros((10, 5, 3))
+    jaugmenter = JCondNormal(NOISE_LEVEL, seed=seed)
+    saugmenter = jaugmenter.to_SimpleCondNormal()
+    coords = np.zeros(COORD_SHAPE)
     generated = jaugmenter.sample(coords)
     jlog_grad = jaugmenter.log_gradient(coords, generated)
     slog_grad = saugmenter.log_gradient(coords, generated)

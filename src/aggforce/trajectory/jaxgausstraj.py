@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import DTypeLike
 
 from .augment import Augmenter
+from .simplegausstraj import SimpleCondNormal
 
 
 _UNSET: Final = object()
@@ -362,3 +363,40 @@ class JCondNormal(Augmenter):
         # override random state to match
         new_instance._rkey = self._rkey  # noqa: SLF001
         return new_instance
+
+    def to_SimpleCondNormal(self) -> "SimpleCondNormal":
+        """Create TorchCondNormal from JCondNormal.
+
+        Attempts to create SimpleCondNormal from the current instance. This only works
+        if:
+            - cov must scalar float
+            - premap: must be  `_ident`
+            - source_postmap: must be _ident`
+        """
+        # check the arguments
+        if not _is_identity_map(self.premap):
+            raise NotImplementedError(
+                "`SimpleCondNormal` is only implemented for "
+                "cases where `premap` is simply the identity "
+                "transform."
+            )
+        if not _is_identity_map(self.source_postmap):
+            raise NotImplementedError(
+                "`SimpleCondNormal` is only implemented for "
+                "cases where `source_postmap` is simply the "
+                "identity transform."
+            )
+        if not isinstance(self._cov, float):
+            raise ValueError(
+                "Only can convert to SimpleCondNormal for "
+                "scalar-specified covariance."
+            )
+        if self.premap is not _ident:
+            raise ValueError(
+                "Only can convert to SimpleCondNormal for " "identity premap."
+            )
+        if self.source_postmap is not _ident:
+            raise ValueError(
+                "Only can convert to SimpleCondNormal for " "identity source_postmap."
+            )
+        return SimpleCondNormal(var=self._cov, dtype=self.dtype)
