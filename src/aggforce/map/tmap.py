@@ -3,10 +3,25 @@ r"""Provides maps for trajectory objects.
 These objects effectively map coordinates and forces together.
 """
 
-from typing import Tuple, Callable, Final, Iterable, TypeVar
+from typing import (
+    Tuple,
+    Callable,
+    Final,
+    Iterable,
+    TypeVar,
+    Optional,
+    Any,
+)
 from abc import ABC, abstractmethod
+from warnings import warn
 import numpy as np
-from ..trajectory import Trajectory, AugmentedTrajectory, Augmenter
+from ..trajectory import (
+    CoordsTrajectory,
+    ForcesTrajectory,
+    Trajectory,
+    AugmentedTrajectory,
+    Augmenter,
+)
 from .core import CLAMap
 
 ArrayTransform = Callable[[np.ndarray], np.ndarray]
@@ -298,6 +313,96 @@ class ComposedTMap(TMap):
         for mapping in self.submaps:
             new_maps.append(mapping.astype(*args, **kwargs))
         return self.__class__(submaps=new_maps)
+
+
+_T_Coords = TypeVar("_T_Coords", bound=CoordsTrajectory)
+
+
+class NullForcesTMap(TMap):
+    """Trajectory map that adds or overrides forces in the input.
+
+    If the input is a CoordsTrajectory, a Trajectory is returned with a null
+    force entry; if the input is a Trajectory, the force content is overwritten
+    with a null entry. Here, a null force entry corresponds to an array that is
+    the same shape as the coordinate array but filled some some value, by
+    default np.nan.
+
+    This is useful when a user supplies only coordinates but needs to use a TMap based
+    workflow.
+    """
+
+    def __init__(
+        self, warn_input_forces: bool = True, fill_value: Any = np.nan
+    ) -> None:
+        """Intialize.
+
+        Arguments:
+        ---------
+        warn_input_forces:
+            If true, when the instance is called on a Trajectory instance, we warn as
+            we are ignoring its force entries.
+        fill_value:
+            Value to fill the derived force array with.
+
+        """
+        self.warn_input_forces = warn_input_forces
+        self.fill_value = fill_value
+
+    def __call__(
+        self,
+        t: CoordsTrajectory,
+    ) -> Trajectory:
+        """Map CoordsTrajectory to Trajectory."""
+        if isinstance(t, ForcesTrajectory):
+            if self.warn_input_forces:
+                warn("Discarding forces on input trajectory.", stacklevel=0)
+
+        return Trajectory(coords=t.coords, forces=self.fill_value * t.coords)
+
+    def map_arrays(
+        self,
+        coords: np.ndarray,
+        forces: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Map arrays using coord_map.
+
+        This method overrides TMaps map_arrays as it allows forces to be unset or
+        set to None.
+
+        Arguments:
+        ---------
+        coords:
+            Coordinate array to be mapped.
+        forces:
+            Force array to be mapped. Unlike other TMaps, this may be omitted or
+            set to None.
+
+        Returns:
+        -------
+        Tuple of mapped arrays.
+
+        """
+        if forces is None:
+            t = CoordsTrajectory(coords=coords)
+        else:
+            t = Trajectory(coords=coords, forces=forces)
+        derived = self(t)
+        return (derived.coords, derived.forces)
+
+    def astype(self, *args, **kwargs) -> "NullForcesTMap":  # noqa: ARG002
+        """Return a reinitialized version of self.
+
+        Arguments:
+        ---------
+        *args:
+            ignored, kept for compatibility.
+        **kwargs:
+            ignored, kept for compatibility.
+
+        """
+        return self.__class__(
+            warn_input_forces=self.warn_input_forces, fill_value=self.fill_value
+        )
 
 
 class RATMap:

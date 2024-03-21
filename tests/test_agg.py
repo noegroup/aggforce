@@ -23,7 +23,8 @@ def test_agg_opt() -> None:
 
     # CG mapping: two oxygens
     inds = [[0], [3]]
-    cmap = LinearMap(inds, n_fg_sites=forces.shape[1])
+    # handle_nans is set to false because of dummy positions below
+    cmap = LinearMap(inds, n_fg_sites=forces.shape[1], handle_nans=False)
     # make dummy coords
     coords = np.zeros_like(forces)
     coords[:] = np.nan
