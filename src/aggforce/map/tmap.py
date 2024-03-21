@@ -320,7 +320,32 @@ _T_Coords = TypeVar("_T_Coords", bound=CoordsTrajectory)
 
 
 class NullForcesTMap(TMap):
-    def __init__(self, warn_input_forces: bool = True, fill_value: Any = np.nan):
+    """Trajectory map that adds or overrides forces in the input.
+
+    If the input is a CoordsTrajectory, a Trajectory is returned with a null
+    force entry; if the input is a Trajectory, the force content is overwritten
+    with a null entry. Here, a null force entry corresponds to an array that is
+    the same shape as the coordinate array but filled some some value, by
+    default np.nan.
+
+    This is useful when a user supplies only coordinates but needs to use a TMap based
+    workflow.
+    """
+
+    def __init__(
+        self, warn_input_forces: bool = True, fill_value: Any = np.nan
+    ) -> None:
+        """Intialize.
+
+        Arguments:
+        ---------
+        warn_input_forces:
+            If true, when the instance is called on a Trajectory instance, we warn as
+            we are ignoring its force entries.
+        fill_value:
+            Value to fill the derived force array with.
+
+        """
         self.warn_input_forces = warn_input_forces
         self.fill_value = fill_value
 
@@ -328,7 +353,7 @@ class NullForcesTMap(TMap):
         self,
         t: CoordsTrajectory,
     ) -> Trajectory:
-        """Map Trajectory to new instance."""
+        """Map CoordsTrajectory to Trajectory."""
         if isinstance(t, ForcesTrajectory):
             if self.warn_input_forces:
                 warn("Discarding forces on input trajectory.", stacklevel=0)
@@ -342,16 +367,20 @@ class NullForcesTMap(TMap):
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Map arrays using coord_map.
 
-        This method mirrors
+        This method overrides TMaps map_arrays as it allows forces to be unset or
+        set to None.
 
         Arguments:
         ---------
         coords:
+            Coordinate array to be mapped.
         forces:
+            Force array to be mapped. Unlike other TMaps, this may be omitted or
+            set to None.
 
         Returns:
         -------
-        mapped arrays
+        Tuple of mapped arrays.
 
         """
         if forces is None:
@@ -361,7 +390,17 @@ class NullForcesTMap(TMap):
         derived = self(t)
         return (derived.coords, derived.forces)
 
-    def astype(self, *args, **kwargs) -> "NullForcesTMap":
+    def astype(self, *args, **kwargs) -> "NullForcesTMap":  # noqa: ARG002
+        """Return a reinitialized version of self.
+
+        Arguments:
+        ---------
+        *args:
+            ignored, kept for compatibility.
+        **kwargs:
+            ignored, kept for compatibility.
+
+        """
         return self.__class__(
             warn_input_forces=self.warn_input_forces, fill_value=self.fill_value
         )
