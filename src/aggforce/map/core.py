@@ -101,7 +101,7 @@ class LinearMap:
             Nan to Inf). If False, simple matrix multiplication is performed without
             NaN specific logic.
         nan_check_threshold:
-            If handle_nans is True, this used with np.allclose to make sure the 
+            If handle_nans is True, this used with np.allclose to make sure the
             corresponding tests passes.
 
         Example:
