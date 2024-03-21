@@ -298,7 +298,6 @@ class ComposedTMap(TMap):
         result = t
         for mapping in reversed(self.submaps):
             result = mapping(result)
-            print(result.coords, result.forces)
         return result
 
     def __getitem__(self, idx: int, /) -> TMap:
