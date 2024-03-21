@@ -158,31 +158,39 @@ class JLinearMap(LinearMap):
     @property
     def T(self) -> "JLinearMap":
         """LinearMap defined by transpose of its standard matrix."""
-        return JLinearMap(mapping=self.standard_matrix.T,
-                          bypass_nan_check=self.bypass_nan_check,
-                          handle_nans=self.handle_nans,
-                          nan_check_threshold=self.nan_check_threshold)
+        return JLinearMap(
+            mapping=self.standard_matrix.T,
+            bypass_nan_check=self.bypass_nan_check,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __matmul__(self, lm: "LinearMap", /) -> "JLinearMap":
         """LinearMap defined by multiplying the standard_matrix's of arguments."""
-        return JLinearMap(mapping=self.standard_matrix @ lm.standard_matrix,
-                          bypass_nan_check=self.bypass_nan_check,
-                          handle_nans=self.handle_nans,
-                          nan_check_threshold=self.nan_check_threshold)
+        return JLinearMap(
+            mapping=self.standard_matrix @ lm.standard_matrix,
+            bypass_nan_check=self.bypass_nan_check,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __rmul__(self, c: float, /) -> "JLinearMap":
         """LinearMap defined by multiplying the standard_matrix's with a coefficient."""
-        return JLinearMap(mapping=c * self.standard_matrix,
-                          bypass_nan_check=self.bypass_nan_check,
-                          handle_nans=self.handle_nans,
-                          nan_check_threshold=self.nan_check_threshold)
+        return JLinearMap(
+            mapping=c * self.standard_matrix,
+            bypass_nan_check=self.bypass_nan_check,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __add__(self, lm: "LinearMap", /) -> "JLinearMap":
         """LinearMap defined by adding standard_matrices."""
-        return JLinearMap(mapping=self.standard_matrix + lm.standard_matrix,
-                          bypass_nan_check=self.bypass_nan_check,
-                          handle_nans=self.handle_nans,
-                          nan_check_threshold=self.nan_check_threshold)
+        return JLinearMap(
+            mapping=self.standard_matrix + lm.standard_matrix,
+            bypass_nan_check=self.bypass_nan_check,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     @classmethod
     def from_linearmap(
