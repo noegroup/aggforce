@@ -4,9 +4,16 @@ These maps transform fine-grained points to coarse-grained points. Points may be
 positions or forces.
 """
 
-from typing import Union, List, Callable, Final, Dict, Optional
+from typing import Union, List, Callable, Final, Dict, Optional, Literal
 import numpy as np
 from ..util import trjdot
+
+
+# this should be very fast
+def _has_nans(x: np.ndarray) -> bool:
+    flat = x.ravel(order="K")
+    # this will be a 1 element array
+    return bool(np.isnan(np.dot(flat, flat)))
 
 
 # _Taggable is only used by CLAMap right now, but its a separate class
@@ -60,6 +67,8 @@ class LinearMap:
         self,
         mapping: Union[List[List[int]], np.ndarray],
         n_fg_sites: Union[int, None] = None,
+        handle_nans: Union[bool, Literal["safe"]] = True,
+        nan_check_threshold: float = 1e-6,
     ) -> None:
         r"""Initialize LinearMapping from something describing a map.
 
@@ -78,8 +87,22 @@ class LinearMap:
             Certain mapping descriptions make it ambiguous how many total
             fine-grained sites there are. This variable allows this ambiguity to
             be resolved.
-        tags (dictionary or None):
-            Passed to Map init.
+        handle_nans:
+            If true, np.nans in the matrices given as input to class calls are treated
+            in a special way:
+                1) They are converted to np.inf
+                2) If any inf values exist in the output, an exception is raised
+                3) All nans in the output are set to 0
+            0*inf = nan, but all other numbers satisfy c*inf=+-inf; as a result, this
+            procedure allows input arrays that have nans to be operated on such that
+            if 0 is multiplied with that entry, 0 is returned.
+            If safe, this is also done, but we make sure that no temporary modifications
+            are performed in the input matrix (else, we may temporarily in-place set
+            Nan to Inf). If False, simple matrix multiplication is performed without
+            NaN specific logic.
+        nan_check_threshold:
+            If handle_nans is True, this used with np.allclose to make sure the
+            corresponding tests passes.
 
         Example:
         -------
@@ -122,6 +145,15 @@ class LinearMap:
         else:
             raise ValueError("Cannot understanding mapping f{mapping}.")
 
+        self.handle_nans = handle_nans
+        if self.handle_nans:
+            if not np.all(np.isfinite(self.standard_matrix)):
+                raise ValueError(
+                    "Nan checking can only be performed in "
+                    "standard_matrix is itself finite."
+                )
+        self.nan_check_threshold = nan_check_threshold
+
     @property
     def standard_matrix(self) -> np.ndarray:
         r"""The mapping in standard matrix format."""
@@ -161,14 +193,37 @@ class LinearMap:
         Arguments:
         ---------
         points (np.ndarray):
-            Assumed to be 3 dimensional of shape (n_steps,n_sites,n_dims).
+            Assumed to be 3 dimensional of shape (n_steps,n_sites,n_dims). Note that
+            if self.handle_nans is True, this array may be temporarily altered if
+            it contains NaN values.
 
         Returns:
         -------
         Combines points along the n_sites dimension according to the internal
-        map.
+        map. Note that the handling of NaNs depends on initialization options.
         """
-        return trjdot(points, self.standard_matrix)
+        nan_handling = self.handle_nans and _has_nans(points)
+        if nan_handling:
+            input_mask = np.isnan(points)
+            if self.handle_nans == "safe":
+                input_matrix = points.copy()
+            else:
+                input_matrix = points
+            input_matrix[input_mask] = 0.0
+            raw_result = trjdot(input_matrix, self.standard_matrix)
+            input_matrix[input_mask] = -1.0
+            pushed_result = trjdot(input_matrix, self.standard_matrix)
+            if not np.allclose(
+                raw_result, pushed_result, atol=self.nan_check_threshold
+            ):
+                raise ValueError(
+                    "NaN handling is on and results seem to depend on NaN "
+                    "positions in input array. Check input and standard_matrix."
+                )
+            input_matrix[input_mask] = np.nan
+            return raw_result
+        else:
+            return trjdot(points, self.standard_matrix)
 
     def flat_call(self, flattened: np.ndarray) -> np.ndarray:
         """Apply map to pre-flattened array.
@@ -204,19 +259,35 @@ class LinearMap:
     @property
     def T(self) -> "LinearMap":
         """LinearMap defined by transpose of its standard matrix."""
-        return LinearMap(mapping=self.standard_matrix.T)
+        return LinearMap(
+            mapping=self.standard_matrix.T,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __matmul__(self, lm: "LinearMap", /) -> "LinearMap":
         """LinearMap defined by multiplying the standard_matrix's of arguments."""
-        return LinearMap(mapping=self.standard_matrix @ lm.standard_matrix)
+        return LinearMap(
+            mapping=self.standard_matrix @ lm.standard_matrix,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __rmul__(self, c: float, /) -> "LinearMap":
         """LinearMap defined by multiplying the standard_matrix's with a coefficient."""
-        return LinearMap(mapping=c * self.standard_matrix)
+        return LinearMap(
+            mapping=c * self.standard_matrix,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __add__(self, lm: "LinearMap", /) -> "LinearMap":
         """LinearMap defined by adding standard_matrices."""
-        return LinearMap(mapping=self.standard_matrix + lm.standard_matrix)
+        return LinearMap(
+            mapping=self.standard_matrix + lm.standard_matrix,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def astype(self, *args, **kwargs) -> "LinearMap":
         """Convert to a given precision as determined by arguments.
@@ -225,7 +296,11 @@ class LinearMap:
         instance.  Arguments are passed to np astype. Setting copy to False may
         reduce copies, but may return instances with shared references.
         """
-        return self.__class__(mapping=self.standard_matrix.astype(*args, **kwargs))
+        return self.__class__(
+            mapping=self.standard_matrix.astype(*args, **kwargs),
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
 
 class CLAMap(_Taggable):

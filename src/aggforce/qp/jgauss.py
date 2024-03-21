@@ -1,18 +1,26 @@
 """Provides jax methods for making optimized stochastic coordinate-force maps."""
 
 from typing import Optional
+import numpy as np
 from ..map import (
     LinearMap,
     JLinearMap,
     AugmentedTMap,
     SeperableTMap,
+    NullForcesTMap,
     lmap_augvariables,
     ComposedTMap,
     RATMap,
 )
-from ..trajectory import Trajectory, AugmentedTrajectory, JCondNormal
+from ..trajectory import (
+    Trajectory,
+    CoordsTrajectory,
+    AugmentedTrajectory,
+    JCondNormal,
+)
 from ..constraints import Constraints
 from .qplinear import qp_linear_map, DEFAULT_SOLVER_OPTIONS, SolverOptions
+from .basicagg import constraint_aware_uni_map
 
 
 def joptgauss_map(
@@ -102,7 +110,9 @@ def joptgauss_map(
     # however, it needs to in the form of jax function which acts on flattened
     # vectors and allows for single-frame operation. This is accessible via an
     # attributed of a jaxxed LinearMap (JLinearMap) attribute.
-    flattened_cmap = JLinearMap.from_linearmap(coord_map).flat_call
+    flattened_cmap = JLinearMap.from_linearmap(
+        coord_map, bypass_nan_check=True
+    ).flat_call
     # create the object that will do the noising
     augmenter = JCondNormal(cov=var, premap=flattened_cmap, seed=seed)
     # create extended trajectory using the derived noiser
@@ -154,8 +164,9 @@ def stagedjoptgauss_map(
         1. Generate an optimized force map without any noise.
             - Note: if force_map is specified, this is used in lieu of 1.
         2. Create a augmented trajectory without any premap.
-        3. Map the augmented trajectory using the non-noise optimized map.
-        4. Create an optimized map on the mapped augmented trajectory.
+        3. (Partially) map the real particles augmented trajectory using the non-noise
+           optimized map.
+        4. Create an optimized map on the partially mapped augmented trajectory.
         5. Compose the maps from 1 and 4 to create a new map.
 
     To access the premap, index the returned TMap with [1]. To obtain the noise
@@ -218,8 +229,8 @@ def stagedjoptgauss_map(
     # We then extract the noise and coord maps and jaxify them.
     #
     # we know based on external knowledge that these entrees are LinearMaps
-    j_coord_map = JLinearMap.from_linearmap(pre_tmap.coord_map)  # type: ignore [arg-type]
-    j_force_map = JLinearMap.from_linearmap(pre_tmap.force_map)  # type: ignore [arg-type]
+    j_coord_map = JLinearMap.from_linearmap(pre_tmap.coord_map, bypass_nan_check=True)  # type: ignore [arg-type]
+    j_force_map = JLinearMap.from_linearmap(pre_tmap.force_map, bypass_nan_check=True)  # type: ignore [arg-type]
 
     # We then create the augmenter. This will be used with the full trajectory.
     augmenter = JCondNormal(cov=var, premap=j_coord_map.flat_call, seed=seed)
@@ -296,5 +307,139 @@ def stagedjoptgauss_map(
     #                                      force and mapped
 
     comb_tmap = ComposedTMap(submaps=[post_tmap, pre_tmap])
+
+    return comb_tmap
+
+
+def stagedjslicegauss_map(
+    traj: CoordsTrajectory,
+    coord_map: LinearMap,
+    var: float,
+    kbt: float,
+    seed: Optional[int] = None,
+    constraints: Optional[Constraints] = None,  # noqa: ARG001
+    warn_input_forces: bool = True,
+) -> ComposedTMap:
+    """Create Gaussian map which only uses information from noising in reported forces.
+
+    This routine is written to mirror the procedure in stagedjoptgauss_map, and
+    similarly outputs a ComposedTMap; however, this ComposedTMap has 3 parts.
+    maps[2] adds null forces to the input data if needed (allowing the derived
+    tmap to operate when no forces are present), maps[1] maps the coordinates to the
+    coarse-grained resolution, and maps[0] noises the data and extracts noise-derived
+    forces.
+
+    At the cost of increasing complexity, we keep the internal procedure close to
+    that in stagedjoptgauss_map. The following steps are performed:
+        1. Set forces in input to nans to make sure they are not used.
+        2. Create a augmented trajectory without any premap.
+        3. Partially map the augmented trajectory to the resolution of mapped real
+           sites with augmented sites.
+        4. Create a slice force map on the partially mapped trajectory.
+        5. Compose the maps from 1, 3, and 4 to create a new map.
+
+    Arguments:
+    ---------
+    traj:
+        Trajectory instance that will be used to create noised positions then
+        subsequently mapped.
+    coord_map:
+        Coordinate map representing the coarse-grained description of the system. The
+        output dimension (n_cg_sites) determines the number of auxiliary particles to
+        the Gaussian noise augmenter will add to the system.
+
+        Note that this map does not enter the produced TMap in a straightforward way.
+    var:
+        The noise added is drawn from a Gaussian with a diagonal covariance matrix; this
+        positive scalar is the diagonal value. A small value means the level of noise
+        added is small, and larger values perturb the system more.
+    kbt:
+        Boltzmann constant times temperature for the samples in traj. This is needed to
+        turn the log density gradients of the added noise variates into forces.
+    seed:
+        Random seed that will be passed to the Gaussian noiser (JCondNormal instance).
+    constraints:
+        Not used. Retained for compatibility.
+    warn_input_forces:
+        If True, we warn if forces were provided in the input data, as we will ignore
+        them.
+
+    Returns:
+    -------
+    An ComposedTMap which characterizes the Gaussian map. This map has three
+    submaps; the first map adds dummy forces if the input data lacks forces.
+    The second map reduces the dimension of the data via coord_map, and the
+    third map noises the system and isolates the noise-derived forces.
+
+    """
+    # to be sure that we do not actually use force information present in the input
+    # trajectory, we replace it with NaNs. This also allows the input to
+    # not have force information without changing subsequent calls.
+    naforce_traj = NullForcesTMap(warn_input_forces=warn_input_forces)(traj)
+
+    # Create augmenter that adds gaussian noise to the system.
+    # bypass_nan_check is needed for internal derivative calculations.
+    augmenter = JCondNormal(
+        cov=var,
+        premap=JLinearMap.from_linearmap(coord_map, bypass_nan_check=True).flat_call,
+        seed=seed,
+    )
+    # create augmented trajectory
+    aug_traj = AugmentedTrajectory.from_trajectory(
+        t=naforce_traj, augmenter=augmenter, kbt=kbt
+    )
+
+    # we now create the partially mapped augmented trajectory, but unlike in
+    # other methods we must create a dummy force map, and then use that to
+    # create a preprocessing tmap with coord_map.
+    null_fmap = LinearMap(
+        mapping=np.ones_like(coord_map.standard_matrix), handle_nans=False
+    )
+    pre_tmap = SeperableTMap(coord_map=coord_map, force_map=null_fmap)
+
+    # this contains the noise particles and mapped real particles.
+    pmapped_traj = RATMap(tmap=pre_tmap)(aug_traj)
+
+    # create the map that isolates the noise sites on the partially mapped traj.
+    preserved_sites = []
+    for index in range(
+        pmapped_traj.n_sites - aug_traj.n_aug_sites, pmapped_traj.n_sites
+    ):
+        preserved_sites.append([index])
+    pmapped_coord_map = LinearMap(
+        mapping=preserved_sites, n_fg_sites=pmapped_traj.n_sites
+    )
+
+    # we then move to creating the force map that acts on the partially mapped
+    # traj.  We no longer know what the constraints are (they have probably
+    # been mapped away). For a reasonable pre-coord map, there shouldn't be any
+    # left, and we assume this is true.
+    pmapped_tmap = constraint_aware_uni_map(
+        traj=pmapped_traj,
+        coord_map=pmapped_coord_map,
+        constraints=set(),
+    )
+
+    # this is the augmenter that acts on the already coarse-grained traj.
+    # As we do not use any forces on the real particles, we do not bother
+    # to create a force-modifier as is done in other methods.
+    pmapped_augmenter = JCondNormal(
+        cov=var,
+        seed=seed,
+    )
+
+    # we wrapped the derived force map with the augmentation operation
+    post_tmap = AugmentedTMap(
+        aug_tmap=pmapped_tmap,
+        augmenter=pmapped_augmenter,
+        kbt=kbt,
+    )
+
+    # and finally compose maps to create the returned callable.
+    # NullForcesTMap allows the resulting TMap to be applied to trajectories
+    # which do not have force information, or coordinate arrays.
+    comb_tmap = ComposedTMap(
+        submaps=[post_tmap, pre_tmap, NullForcesTMap(warn_input_forces=False)]
+    )
 
     return comb_tmap

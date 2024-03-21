@@ -5,7 +5,7 @@ from typing_extensions import TypedDict
 import numpy as np
 from qpsolvers import solve_qp  # type: ignore [import-untyped]
 from ..map import LinearMap, SeperableTMap
-from ..trajectory import ForcesOnlyTrajectory
+from ..trajectory import ForcesTrajectory
 from ..constraints import Constraints, reduce_constraint_sets, constraint_lookup_dict
 
 SolverOptions = TypedDict(
@@ -28,7 +28,7 @@ DEFAULT_SOLVER_OPTIONS: SolverOptions = {
 
 
 def qp_linear_map(
-    traj: ForcesOnlyTrajectory,
+    traj: ForcesTrajectory,
     coord_map: LinearMap,
     constraints: Union[None, Constraints] = None,
     l2_regularization: float = 0.0,
