@@ -164,7 +164,7 @@ def stagedjoptgauss_map(
         1. Generate an optimized force map without any noise.
             - Note: if force_map is specified, this is used in lieu of 1.
         2. Create a augmented trajectory without any premap.
-        3. (Partially) map the real particles augmented trajectory using the non-noise 
+        3. (Partially) map the real particles augmented trajectory using the non-noise
            optimized map.
         4. Create an optimized map on the partially mapped augmented trajectory.
         5. Compose the maps from 1 and 4 to create a new map.
@@ -333,7 +333,7 @@ def stagedjslicegauss_map(
     that in stagedjoptgauss_map. The following steps are performed:
         1. Set forces in input to nans to make sure they are not used.
         2. Create a augmented trajectory without any premap.
-        3. Partially map the augmented trajectory to the resolution of mapped real 
+        3. Partially map the augmented trajectory to the resolution of mapped real
            sites with augmented sites.
         4. Create a slice force map on the partially mapped trajectory.
         5. Compose the maps from 1, 3, and 4 to create a new map.
@@ -381,9 +381,7 @@ def stagedjslicegauss_map(
     # bypass_nan_check is needed for internal derivative calculations.
     augmenter = JCondNormal(
         cov=var,
-        premap=JLinearMap.from_linearmap(
-            coord_map, bypass_nan_check=True
-        ).flat_call,
+        premap=JLinearMap.from_linearmap(coord_map, bypass_nan_check=True).flat_call,
         seed=seed,
     )
     # create augmented trajectory

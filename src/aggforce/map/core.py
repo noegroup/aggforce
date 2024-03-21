@@ -256,27 +256,35 @@ class LinearMap:
     @property
     def T(self) -> "LinearMap":
         """LinearMap defined by transpose of its standard matrix."""
-        return LinearMap(mapping=self.standard_matrix.T,
-                         handle_nans=self.handle_nans,
-                         nan_check_threshold=self.nan_check_threshold)
+        return LinearMap(
+            mapping=self.standard_matrix.T,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __matmul__(self, lm: "LinearMap", /) -> "LinearMap":
         """LinearMap defined by multiplying the standard_matrix's of arguments."""
-        return LinearMap(mapping=self.standard_matrix @ lm.standard_matrix,
-                         handle_nans=self.handle_nans,
-                         nan_check_threshold=self.nan_check_threshold)
+        return LinearMap(
+            mapping=self.standard_matrix @ lm.standard_matrix,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __rmul__(self, c: float, /) -> "LinearMap":
         """LinearMap defined by multiplying the standard_matrix's with a coefficient."""
-        return LinearMap(mapping=c * self.standard_matrix,
-                         handle_nans=self.handle_nans,
-                         nan_check_threshold=self.nan_check_threshold)
+        return LinearMap(
+            mapping=c * self.standard_matrix,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def __add__(self, lm: "LinearMap", /) -> "LinearMap":
         """LinearMap defined by adding standard_matrices."""
-        return LinearMap(mapping=self.standard_matrix + lm.standard_matrix,
-                         handle_nans=self.handle_nans,
-                         nan_check_threshold=self.nan_check_threshold)
+        return LinearMap(
+            mapping=self.standard_matrix + lm.standard_matrix,
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
     def astype(self, *args, **kwargs) -> "LinearMap":
         """Convert to a given precision as determined by arguments.
@@ -285,9 +293,11 @@ class LinearMap:
         instance.  Arguments are passed to np astype. Setting copy to False may
         reduce copies, but may return instances with shared references.
         """
-        return self.__class__(mapping=self.standard_matrix.astype(*args, **kwargs),
-                              handle_nans=self.handle_nans,
-                              nan_check_threshold=self.nan_check_threshold)
+        return self.__class__(
+            mapping=self.standard_matrix.astype(*args, **kwargs),
+            handle_nans=self.handle_nans,
+            nan_check_threshold=self.nan_check_threshold,
+        )
 
 
 class CLAMap(_Taggable):

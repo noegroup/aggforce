@@ -298,7 +298,7 @@ class ComposedTMap(TMap):
         result = t
         for mapping in reversed(self.submaps):
             result = mapping(result)
-            print(result.coords,result.forces)
+            print(result.coords, result.forces)
         return result
 
     def __getitem__(self, idx: int, /) -> TMap:
@@ -361,9 +361,10 @@ class NullForcesTMap(TMap):
         derived = self(t)
         return (derived.coords, derived.forces)
 
-    def astype(self,*args,**kwargs) -> "NullForcesTMap":
-        return self.__class__(warn_input_forces=self.warn_input_forces,
-                              fill_value=self.fill_value)
+    def astype(self, *args, **kwargs) -> "NullForcesTMap":
+        return self.__class__(
+            warn_input_forces=self.warn_input_forces, fill_value=self.fill_value
+        )
 
 
 class RATMap:
