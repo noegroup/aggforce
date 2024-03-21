@@ -145,7 +145,7 @@ def test_linearmap_precision_mapping(
     mapped_32 = lmap_32(random_fg_positions_32)
     mapped = lmap(random_fg_positions_32)
 
-    difference = _l2(mapped_32, mapped)
+    difference = _l2(mapped_32, mapped, mean=True)
 
     assert difference < TOL
 
@@ -172,6 +172,6 @@ def test_jlinearmap_precision_mapping(
     mapped_32 = lmap_32(random_fg_positions_32)
     jmapped_32 = jlmap_32(random_fg_positions_32)
 
-    difference = _l2(mapped_32, jmapped_32)
+    difference = _l2(mapped_32, jmapped_32, mean=True)
 
     assert difference < TOL
