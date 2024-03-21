@@ -27,10 +27,12 @@ class JLinearMap(LinearMap):
         return jnp.asarray(self.standard_matrix)
 
     @overload
-    def __call__(self, points: NDArray) -> NDArray: ...
+    def __call__(self, points: NDArray) -> NDArray:
+        ...
 
     @overload
-    def __call__(self, points: Array) -> Array: ...
+    def __call__(self, points: Array) -> Array:
+        ...
 
     def __call__(self, points: ArrT) -> ArrT:
         r"""Apply map to a particular form of 3-dim array.
@@ -64,10 +66,12 @@ class JLinearMap(LinearMap):
             return transformed
 
     @overload
-    def flat_call(self, flattened: NDArray) -> NDArray: ...
+    def flat_call(self, flattened: NDArray) -> NDArray:
+        ...
 
     @overload
-    def flat_call(self, flattened: Array) -> Array: ...
+    def flat_call(self, flattened: Array) -> Array:
+        ...
 
     def flat_call(self, flattened: ArrT) -> ArrT:
         """Apply map to pre-flattened array.
