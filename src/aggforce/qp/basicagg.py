@@ -3,13 +3,13 @@
 from typing import Union
 from itertools import product
 import numpy as np
-from ..trajectory import ForcesOnlyTrajectory
+from ..trajectory import ForcesTrajectory
 from ..map import LinearMap, SeperableTMap
 from ..constraints import Constraints, reduce_constraint_sets
 
 
 def constraint_aware_uni_map(
-    traj: ForcesOnlyTrajectory,  # noqa: ARG001
+    traj: ForcesTrajectory,  # noqa: ARG001
     coord_map: LinearMap,
     constraints: Union[None, Constraints] = None,
 ) -> SeperableTMap:

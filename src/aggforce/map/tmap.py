@@ -3,10 +3,25 @@ r"""Provides maps for trajectory objects.
 These objects effectively map coordinates and forces together.
 """
 
-from typing import Tuple, Callable, Final, Iterable, TypeVar
+from typing import (
+    Tuple,
+    Callable,
+    Final,
+    Iterable,
+    TypeVar,
+    Optional,
+    Any,
+)
 from abc import ABC, abstractmethod
+from warnings import warn
 import numpy as np
-from ..trajectory import Trajectory, AugmentedTrajectory, Augmenter
+from ..trajectory import (
+    CoordsTrajectory,
+    ForcesTrajectory,
+    Trajectory,
+    AugmentedTrajectory,
+    Augmenter,
+)
 from .core import CLAMap
 
 ArrayTransform = Callable[[np.ndarray], np.ndarray]
@@ -283,6 +298,7 @@ class ComposedTMap(TMap):
         result = t
         for mapping in reversed(self.submaps):
             result = mapping(result)
+            print(result.coords,result.forces)
         return result
 
     def __getitem__(self, idx: int, /) -> TMap:
@@ -298,6 +314,56 @@ class ComposedTMap(TMap):
         for mapping in self.submaps:
             new_maps.append(mapping.astype(*args, **kwargs))
         return self.__class__(submaps=new_maps)
+
+
+_T_Coords = TypeVar("_T_Coords", bound=CoordsTrajectory)
+
+
+class NullForcesTMap(TMap):
+    def __init__(self, warn_input_forces: bool = True, fill_value: Any = np.nan):
+        self.warn_input_forces = warn_input_forces
+        self.fill_value = fill_value
+
+    def __call__(
+        self,
+        t: CoordsTrajectory,
+    ) -> Trajectory:
+        """Map Trajectory to new instance."""
+        if isinstance(t, ForcesTrajectory):
+            if self.warn_input_forces:
+                warn("Discarding forces on input trajectory.", stacklevel=0)
+
+        return Trajectory(coords=t.coords, forces=self.fill_value * t.coords)
+
+    def map_arrays(
+        self,
+        coords: np.ndarray,
+        forces: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Map arrays using coord_map.
+
+        This method mirrors
+
+        Arguments:
+        ---------
+        coords:
+        forces:
+
+        Returns:
+        -------
+        mapped arrays
+
+        """
+        if forces is None:
+            t = CoordsTrajectory(coords=coords)
+        else:
+            t = Trajectory(coords=coords, forces=forces)
+        derived = self(t)
+        return (derived.coords, derived.forces)
+
+    def astype(self,*args,**kwargs) -> "NullForcesTMap":
+        return self.__class__(warn_input_forces=self.warn_input_forces,
+                              fill_value=self.fill_value)
 
 
 class RATMap:

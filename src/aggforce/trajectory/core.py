@@ -15,19 +15,14 @@ import numpy as np
 from .augment import Augmenter
 
 
-_T_FTraj = TypeVar("_T_FTraj", bound="ForcesOnlyTrajectory")
-_T_Traj = TypeVar("_T_Traj", bound="Trajectory")
-_T_ATraj = TypeVar("_T_ATraj", bound="AugmentedTrajectory")
-
-
-class ForcesOnlyTrajectory:
+class ForcesTrajectory:
     r"""Trajectory with forces but without positions.
 
-    This is similar to Trajectory, but without forces. See Trajectory class for
+    This is similar to Trajectory, but without coordinates. See Trajectory class for
     more information.
     """
 
-    def __init__(self, forces: np.ndarray) -> None:
+    def __init__(self, *, forces: np.ndarray) -> None:
         """Initialize.
 
         Arguments:
@@ -57,10 +52,10 @@ class ForcesOnlyTrajectory:
         """Return the number of frames in the system."""
         return len(self.forces)
 
-    def __getitem__(self, index: slice) -> "ForcesOnlyTrajectory":
+    def __getitem__(self, index: slice) -> "ForcesTrajectory":
         """Index trajectory.
 
-        Only slices are allowed. Returns a ForcesOnlyTrajectory instance.
+        Only slices are allowed. Returns a ForcesTrajectory instance.
         """
         if not isinstance(index, slice):
             raise ValueError("Only slices are allowed for indexing.")
@@ -69,12 +64,12 @@ class ForcesOnlyTrajectory:
 
     # we do not generically type this because unless it is overridden in a subclass, it
     # will indeed always return a
-    def copy(self) -> "ForcesOnlyTrajectory":
+    def copy(self) -> "ForcesTrajectory":
         """Copy a trajectory object."""
         new_forces = self.forces.copy()
         return self.__class__(forces=new_forces)
 
-    def astype(self, *args, **kwargs) -> "ForcesOnlyTrajectory":
+    def astype(self, *args, **kwargs) -> "ForcesTrajectory":
         """Convert to a given dtype.
 
         Arguments are passed to np astype. Setting copy to False may reduce copies, but
@@ -83,7 +78,70 @@ class ForcesOnlyTrajectory:
         return self.__class__(forces=self.forces.astype(*args, **kwargs))
 
 
-class Trajectory(ForcesOnlyTrajectory):
+class CoordsTrajectory:
+    r"""Trajectory with positions but without forces.
+
+    This is similar to Trajectory, but without forces. See Trajectory class for
+    more information.
+    """
+
+    def __init__(self, *, coords: np.ndarray) -> None:
+        """Initialize.
+
+        Arguments:
+        ---------
+        coords:
+            coordinates (positions) for multiple timesteps.
+        """
+        if len(coords.shape) != 3:
+            raise ValueError("forces must have 3 dimensions.")
+        self.coords = coords
+        return
+
+    @property
+    def n_sites(self) -> int:
+        """Number of particles in the system."""
+        return self.coords.shape[1]
+
+    @property
+    def n_dim(self) -> int:
+        """Dimension of the individual particles in the system.
+
+        This is 3 in typical molecular dynamics applications.
+        """
+        return self.coords.shape[2]
+
+    def __len__(self) -> int:
+        """Return the number of frames in the system."""
+        return len(self.coords)
+
+    def __getitem__(self, index: slice) -> "CoordsTrajectory":
+        """Index trajectory.
+
+        Only slices are allowed. Returns a CoordsTrajectory instance.
+        """
+        if not isinstance(index, slice):
+            raise ValueError("Only slices are allowed for indexing.")
+        new_coords = self.coords[index]
+        return self.__class__(coords=new_coords)
+
+    # we do not generically type this because unless it is overridden in a subclass, it
+    # will indeed always return a
+    def copy(self) -> "CoordsTrajectory":
+        """Copy a trajectory object."""
+        new_coords = self.coords.copy()
+        return self.__class__(coords=new_coords)
+
+    def astype(self, *args, **kwargs) -> "CoordsTrajectory":
+        """Convert to a given dtype.
+
+        Arguments are passed to np astype. Setting copy to False may reduce copies, but
+        may return instances with shared references.
+        """
+        return self.__class__(coords=self.coords.astype(*args, **kwargs))
+
+
+class Trajectory(CoordsTrajectory, ForcesTrajectory):
     r"""Collection of coordinates and forces from a molecular trajectory.
 
     A molecular dynamics simulation saves coordinates and forces at various
@@ -116,7 +174,7 @@ class Trajectory(ForcesOnlyTrajectory):
 
     """
 
-    def __init__(self, coords: np.ndarray, forces: np.ndarray) -> None:
+    def __init__(self, *, coords: np.ndarray, forces: np.ndarray) -> None:
         """Initialize.
 
         Arguments:
@@ -130,8 +188,8 @@ class Trajectory(ForcesOnlyTrajectory):
             raise ValueError("coords and forces must be of same shape.")
         if len(coords.shape) != 3:
             raise ValueError("coords and forces must be of same shape.")
-        self.coords = coords
-        super().__init__(forces=forces)
+        CoordsTrajectory.__init__(self, coords=coords)
+        ForcesTrajectory.__init__(self, forces=forces)
         return
 
     def __getitem__(self, index: slice) -> "Trajectory":
@@ -246,6 +304,7 @@ class AugmentedTrajectory(Trajectory):
 
     def __init__(
         self,
+        *,
         coords: np.ndarray,
         forces: np.ndarray,
         augmenter: Augmenter,
