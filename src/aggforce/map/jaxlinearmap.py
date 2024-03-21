@@ -205,5 +205,4 @@ class JLinearMap(LinearMap):
 
     def to_linearmap(self) -> LinearMap:
         """Create normal LinearMap from the current object."""
-        return LinearMap(mapping=self.standard_matrix,
-                         handle_nans=self.handle_nans)
+        return LinearMap(mapping=self.standard_matrix, handle_nans=self.handle_nans)
