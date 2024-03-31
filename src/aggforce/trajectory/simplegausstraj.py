@@ -68,7 +68,8 @@ class SimpleCondNormal(Augmenter):
         """
         # would premap here # means = self.premap(source)
         means = source
-        noise = self.var * self._rng.standard_normal(source.shape, dtype=self.dtype)
+        stdvar = np.sqrt(self.var)
+        noise = stdvar * self._rng.standard_normal(source.shape, dtype=self.dtype)
         return (means + noise).astype(self.dtype, copy=False)
 
     def log_gradient(
