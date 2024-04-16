@@ -17,6 +17,7 @@ from aggforce import (
     joptgauss_map,
     stagedjoptgauss_map,
     stagedjslicegauss_map,
+    stagedjforcegauss_map,
 )
 from aggforce.agg import TMAP_KNAME
 from aggforce import jaxmapval as mv
@@ -404,3 +405,80 @@ def test_negative_cln025_sepgauss_mscg_ip(seed: int = rseed) -> None:
     )
     # check that we do not match
     assert not np.allclose(KNOWN_PROJS, np.array(gauss_projs), atol=2e-1)
+
+
+@pytest.mark.jax
+def test_cln025_sepforcegauss_mscg_ip(seed: int = rseed) -> None:
+    r"""Check if CLN025 seperable force-only gauss maps produce known results.
+
+    This checks for consistency against previous results, but not correctness.
+
+    This test is stochastic. It should rarely fail, but it can. We keep it stochastic
+    as small design changes may alter seed dependence.
+
+    See tests in test_forces for more information.
+    """
+    from aggforce import jaxmapval as mv
+
+    coords, forces, pdb, kbt = get_data()
+    # cmap is the configurational coarse-grained map
+    cmap = gen_config_map(pdb, "CA$")
+    # guess molecular constraints
+    constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
+
+    train_coords = coords[:500]
+    test_coords = coords[500:]
+
+    train_forces = forces[:500]
+    test_forces = forces[500:]
+
+    # we do NOT set the rng here.
+    gauss_results = project_forces(
+        coords=train_coords,
+        forces=train_forces,
+        coord_map=cmap,
+        constrained_inds=constraints,
+        method=stagedjforcegauss_map,
+        var=0.002,
+        kbt=kbt,
+    )
+
+    # map multiple times with gauss map to make big generated dataset
+    mapped_coords = []
+    mapped_forces = []
+    for _ in range(300):
+        gauss_coords, gauss_forces = gauss_results[TMAP_KNAME].map_arrays(
+            test_coords, test_forces
+        )
+        mapped_coords.append(gauss_coords)
+        mapped_forces.append(gauss_coords)
+
+    all_mapped_coords = np.concatenate(mapped_coords, axis=0)
+    all_mapped_forces = np.concatenate(mapped_coords, axis=0)
+
+    # project onto random bases. We here give an rng so that we get the same
+    # projections.
+    gauss_projs = mv.random_force_proj(  # type: ignore
+        coords=all_mapped_coords,
+        forces=all_mapped_forces,
+        randg=r.default_rng(seed=seed),
+        n_samples=5,
+        inner=6.0,
+        outer=12.0,
+        width=6.0,
+        average=False,
+    )
+    # these were taking from the non seperable gauss test, but also
+    # be matched here.
+    KNOWN_PROJS: Final = np.array(
+        [
+            86.73444366455078,
+            -87.3666763305664,
+            70.80025482177734,
+            64.30303955078125,
+            -25.622215270996094,
+        ]
+    )
+    assert np.allclose(KNOWN_PROJS, np.array(gauss_projs), atol=2e-1)
+
+
