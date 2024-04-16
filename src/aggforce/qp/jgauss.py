@@ -593,7 +593,7 @@ def stagedjforcegauss_map(
     # contributions.
 
     # we check how big the noise contributions are
-    remaining_force_residual = np.mean(pmapped_tmap(pmapped_traj).forces**2)
+    remaining_force_residual = np.mean(pmapped_tmap(pmapped_traj).forces ** 2)
     if remaining_force_residual > contribution_tolerance:
         warnings.warn(
             "Unable to remove all noise contributions in forces. Remaining "

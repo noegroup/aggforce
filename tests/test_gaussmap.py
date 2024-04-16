@@ -480,5 +480,3 @@ def test_cln025_sepforcegauss_mscg_ip(seed: int = rseed) -> None:
         ]
     )
     assert np.allclose(KNOWN_PROJS, np.array(gauss_projs), atol=2e-1)
-
-
