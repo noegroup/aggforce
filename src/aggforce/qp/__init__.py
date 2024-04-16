@@ -18,6 +18,11 @@ from .featlinearmap import (
 
 try:
     from .jaxfeat import gb_feat
-    from .jgauss import joptgauss_map, stagedjoptgauss_map, stagedjslicegauss_map
+    from .jgauss import (
+        joptgauss_map,
+        stagedjoptgauss_map,
+        stagedjslicegauss_map,
+        stagedjforcegauss_map,
+    )
 except ImportError:
     pass

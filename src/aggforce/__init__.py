@@ -22,6 +22,11 @@ from .map import LinearMap
 
 # in case jax is not installed
 try:
-    from .qp import joptgauss_map, stagedjoptgauss_map, stagedjslicegauss_map
+    from .qp import (
+        joptgauss_map,
+        stagedjoptgauss_map,
+        stagedjslicegauss_map,
+        stagedjforcegauss_map,
+    )
 except ImportError:
     pass
