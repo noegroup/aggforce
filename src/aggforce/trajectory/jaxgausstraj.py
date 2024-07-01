@@ -1,6 +1,5 @@
 """Jax-based Trajectory Augmenters."""
 from typing import List, TypeVar, Optional, Union, Tuple, Callable, Final
-
 from jax import Array, grad, vmap
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -9,6 +8,7 @@ import numpy as np
 from numpy.typing import DTypeLike
 
 from .augment import Augmenter
+from .simplegausstraj import SimpleCondNormal
 
 
 _UNSET: Final = object()
@@ -19,6 +19,20 @@ A = TypeVar("A")
 def _ident(x: A, /) -> A:
     """Identity."""
     return x
+
+
+def _is_close_to_ident(c: Callable) -> bool:
+    """Partial check to see if c is the identity.
+
+    True means it is indeed close, False means that could not be confirmed.
+    """
+    # to preemptively avoid circular deps.
+    from ..map import LinearMap
+
+    if isinstance(c, LinearMap):
+        return c.close_to_identity()
+    else:
+        return c is _ident
 
 
 class _perframe_wrap:
@@ -362,3 +376,27 @@ class JCondNormal(Augmenter):
         # override random state to match
         new_instance._rkey = self._rkey  # noqa: SLF001
         return new_instance
+
+    def to_SimpleCondNormal(self) -> SimpleCondNormal:
+        """Create TorchCondNormal from JCondNormal.
+
+        Attempts to create SimpleCondNormal from the current instance. This only works
+        if:
+            - cov must scalar float
+            - premap: must be  `_ident`
+            - source_postmap: must be _ident`
+        """
+        if not isinstance(self._cov, float):
+            raise ValueError(
+                "Only can convert to SimpleCondNormal for "
+                "scalar-specified covariance."
+            )
+        if not _is_close_to_ident(self.premap):
+            raise ValueError(
+                "Only can convert to SimpleCondNormal for identity premap."
+            )
+        if not _is_close_to_ident(self.source_postmap):
+            raise ValueError(
+                "Only can convert to SimpleCondNormal for identity source_postmap."
+            )
+        return SimpleCondNormal(var=self._cov, dtype=self.dtype)

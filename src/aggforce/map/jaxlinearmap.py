@@ -202,3 +202,7 @@ class JLinearMap(LinearMap):
             bypass_nan_check=bypass_nan_check,
             handle_nans=lm.handle_nans,
         )
+
+    def to_linearmap(self) -> LinearMap:
+        """Create normal LinearMap from the current object."""
+        return LinearMap(mapping=self.standard_matrix, handle_nans=self.handle_nans)
