@@ -3,7 +3,7 @@
 A package to aggregate atomistic forces to estimate the forces of a given
 manybody potential of mean force. 
 
-### Installation
+## Installation
 
 Install the aggforce package from source by calling `pip install .`,  
 `pip install .[nonlinear]`, or `pip install .[test]` from the 
@@ -18,7 +18,7 @@ version of JAX.  However, it is often necessary to install a GPU
 accelerated version; for instructions on how to do so, see the JAX 
 [documentation](https://github.com/google/jax).
 
-### Example usage
+## Example usage
 
 The following code shows how to generate an optimal linear force aggregation
 map that does not change based on molecular configuration. We grab test data, 
@@ -79,12 +79,14 @@ optim_results = project_forces(
 
 # optim_results and basic_results are dictionaries full of the results
 
-# optimal map itself optim_results['map']
-#   this object is callable on mdtraj formatted force/position arrays and maps
-#   them
-# optimal map _matrix_ is optim_results['map'].standard_matrix
-# forces processed via the optimal map are under optim_results['project_forces']
-# similarly for basic map
+# optimal map itself is under optim_results['tmap']. Note that this maps _both_
+# forces and coordinates at the same time (it is callable on mdtraj formatted
+# force/position arrays and maps.
+
+# forces processed via the optimal map are under optim_results['mapped_forces'],
+# and processed coordinate are under optim_results['mapped_coords'].
+
+# look at examples and test directories for more details
 ```
 
 Optimized force mappings which are allowed to change as a function of
@@ -138,10 +140,41 @@ optim_results = project_forces(
     method=qp_feat_linear_map,
 )
 
-# look at examples directory for more details
+# look at examples and test directories for more details
 ```
 
-### Testing
+### Noised maps
+
+Preliminary work has shown that noise cam be injected into the force map generation to improve training stability
+(see `https://arxiv.org/abs/2407.01286`). 
+To do so, simply import one of the corresponding methods shown below and include it in the project_forces
+call. The level of noise is passed via `var`, which gives the diagonal of the correspoding Gaussian noise.
+
+```python
+# we assume that imports from previous code blocks are still present
+
+from aggforce import (
+    joptgauss_map, # mixed noise+force map with optimized contributions
+    stagedjslicegauss_map, # noise-only "force" map
+)
+
+# example call for mixed noise+force analysis. Analogous changes can be made to create a
+# noise-onyl "force" map.
+gauss_results = project_forces(
+    coords=train_coords,
+    forces=train_forces,
+    coord_map=cmap,
+    constrained_inds=constraints,
+    l2_regularization=1e3,
+    method=joptgauss_map,
+    var=0.002,
+    kbt=kbt,
+)
+
+# look at examples and test directories for more details
+```
+
+## Testing
 
 Tests are provided via `pytest`, and may be run if installation is performed with the 
 `[test]` target. To avoid tests which require `jax`, exclude test with the `jax` marker. 
