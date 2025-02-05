@@ -65,16 +65,19 @@ constraints = guess_pairwise_constraints(coords[0:10], threshold=1e-3)
 # get force map which uniformly aggregates forces inside the cg bead and adds
 # other atoms to satisfy constraint rules
 basic_results = project_forces(
-    xyz=None,
+    coords=coords,
     forces=forces,
-    config_mapping=cmap,
+    coord_map=cmap,
     constrained_inds=constraints,
     method=constraint_aware_uni_map,
 )
 # get _optimized_ force map which optimally weights atoms' forces for
 # aggregation
 optim_results = project_forces(
-    xyz=None, forces=forces, config_mapping=cmap, constrained_inds=constraints
+    coords=coords,
+    forces=forces, 
+    coord_map=cmap,
+    constrained_inds=constraints
 )
 
 # optim_results and basic_results are dictionaries full of the results
@@ -99,13 +102,16 @@ been shown to produce significantly better results.
 
 ```python
 from aggforce import (LinearMap, 
-                      guess_pairwise_constraints, 
-		      project_forces, 
-		      constraint_aware_uni_map,
-		      qp_feat_linear_map,
-		      )
+                    guess_pairwise_constraints, 
+		            project_forces, 
+		            constraint_aware_uni_map,
+		            )
 from aggforce.util import Curry
-from aggforce.qp import Multifeaturize, gb_feat, id_feat
+from aggforce.qp import (Multifeaturize, 
+                        gb_feat, 
+                        id_feat, 
+                        qp_feat_linear_map,
+                        )  
 import numpy as np
 import re
 import mdtraj as md
@@ -128,11 +134,11 @@ config_feater = Curry(
     gb_feat, inner=0.0, outer=8.0, width=1.0, n_basis=7, batch_size=1000, lazy=True
 )
 # We combine our feater with id_feat, which assigns a one-hot id to 
-feater = Multifeaturize([p.id_feat, config_feater])
+feater = Multifeaturize([id_feat, config_feater])
 optim_results = project_forces(
-    xyz=coords,
+    coords=coords,
     forces=forces,
-    config_mapping=cmap,
+    coord_map=cmap,
     constrained_inds=constraints,
     l2_regularization=1e3,
     kbt=0.6955215,
@@ -157,7 +163,7 @@ from aggforce import (
     joptgauss_map, # mixed noise+force map with optimized contributions
     stagedjslicegauss_map, # noise-only "force" map
 )
-
+kbt=0.5
 # example call for mixed noise+force analysis. Analogous changes can be made to create a
 # noise-onyl "force" map.
 gauss_results = project_forces(
