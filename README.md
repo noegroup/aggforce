@@ -102,10 +102,10 @@ been shown to produce significantly better results.
 
 ```python
 from aggforce import (LinearMap, 
-                    guess_pairwise_constraints, 
-		            project_forces, 
-		            constraint_aware_uni_map,
-		            )
+                      guess_pairwise_constraints, 
+		      project_forces, 
+		      constraint_aware_uni_map,
+		      )
 from aggforce.util import Curry
 from aggforce.qp import (Multifeaturize, 
                         gb_feat, 
