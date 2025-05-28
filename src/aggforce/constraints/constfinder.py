@@ -30,7 +30,7 @@ def guess_pairwise_constraints(
         Distances with standard deviations lower than this value are considered
         to be constrainted. Has units of xyz.
     n_batches (int):
-        number of baches over which to divide the number of sites. As the 
+        number of baches over which to divide the number of sites. As the
         constraint finder has O(n_sites^2) memory requirement, large systems
         will require a lot of RAM, so batching is required for low memory systems
 

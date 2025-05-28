@@ -6,6 +6,7 @@ not pull in optional dependencies (e.g., jax).
 from typing import Union, Callable, TypeVar, Iterable, Any, List, Generic
 import numpy as np
 
+
 def chunker(array: np.ndarray, n_batches: int) -> List[np.ndarray]:
     """
     Chunks an input array into a specified number of batches.
@@ -52,7 +53,6 @@ def chunker(array: np.ndarray, n_batches: int) -> List[np.ndarray]:
     # last batch might be larger, it contains the rest of the elements in the array
     batched_array.append(array[(i + 1) * n_elts_per_batch :])
     return batched_array
-
 
 
 T = TypeVar("T")
