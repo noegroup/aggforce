@@ -6,6 +6,55 @@ not pull in optional dependencies (e.g., jax).
 from typing import Union, Callable, TypeVar, Iterable, Any, List, Generic
 import numpy as np
 
+
+def chunker(array: np.ndarray, n_batches: int) -> List[np.ndarray]:
+    """
+    Chunks an input array into a specified number of batches.
+
+    This function divides the input array into approximately equal-sized chunks.
+    The last chunk may contain more elements if the array length is not perfectly
+    divisible by the number of batches.
+
+    Parameters:
+    -----------
+    array : np.ndarray or List
+        The input array to be chunked.
+    n_batches : int
+        The number of batches to divide the array into. Must be a positive
+        integer and less than or equal to the length of the array.
+
+    Returns:
+    --------
+    batched_array: List
+        A list of lists/arrays, where each inner list/array is a chunk of the original array.
+
+    Examples:
+    >>> chunker([1, 2, 3, 4, 5, 6, 7, 8, 9], 3)
+    [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+
+    >>> chunker([1, 2, 3, 4, 5], 2)
+    [[1, 2], [3, 4, 5]]
+
+    >>> chunker([1, 2, 3, 4, 5], 5)
+    [[1], [2], [3], [4], [5]]
+
+    >>> chunker([1, 2, 3, 4, 5], 1)
+    [[1, 2, 3, 4, 5]]
+    """
+    if n_batches == 1:
+        return [array]
+    assert n_batches <= len(
+        array
+    ), "n_batches needs to be smaller than the array to chunk"
+    batched_array = []
+    n_elts_per_batch = len(array) // n_batches
+    for i in range(n_batches - 1):
+        batched_array.append(array[i * n_elts_per_batch : (i + 1) * n_elts_per_batch])
+    # last batch might be larger, it contains the rest of the elements in the array
+    batched_array.append(array[(i + 1) * n_elts_per_batch :])
+    return batched_array
+
+
 T = TypeVar("T")
 
 
@@ -60,7 +109,6 @@ def distances(
         raise ValueError("Cross distances only supported when return_matrix is truthy.")
     if return_displacements and not return_matrix:
         raise ValueError("Displacements only supported when return_matrix is truthy.")
-
     if cross_xyz is None:
         displacement_matrix = xyz[:, None, :, :] - xyz[:, :, None, :]
     else:
