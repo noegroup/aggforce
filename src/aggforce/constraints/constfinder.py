@@ -10,10 +10,9 @@ from ..util import distances
 from .hints import Constraints
 from typing import Union
 
+
 def guess_pairwise_constraints(
-    xyz: np.ndarray, 
-    cross_xyz: Union[None, np.ndarray] = None, 
-    threshold: float = 1e-3
+    xyz: np.ndarray, cross_xyz: Union[None, np.ndarray] = None, threshold: float = 1e-3
 ) -> Constraints:
     """
     Find pairs of sites which are likely constrained via fluctuations.
@@ -37,19 +36,19 @@ def guess_pairwise_constraints(
     Returns
     -------
     set
-        - If cross_xyz is None: set of frozensets of symmetric index pairs (i, j), 
+        - If cross_xyz is None: set of frozensets of symmetric index pairs (i, j),
           each of which contains a pair of indices of sites which are guessed to be
           pairwise constrained.
         - If cross_xyz is provided: set of ordered tuples (i, j) where i indexes
           cross_xyz (other_n_sites) and j indexes xyz (n_sites): this is done for compatibility with the internally called distances function.
             The frozenset is not used here because the order of the sites matters when comparing two different systems.
     """
-    dists = distances(xyz, cross_xyz=cross_xyz)  
-    sds = np.sqrt(np.var(dists, axis=0))  
+    dists = distances(xyz, cross_xyz=cross_xyz)
+    sds = np.sqrt(np.var(dists, axis=0))
 
     if cross_xyz is None:
         # Avoid counting self-pairs as constrained
-        np.fill_diagonal(sds, threshold * 2)  
+        np.fill_diagonal(sds, threshold * 2)
         inds = np.nonzero(sds < threshold)
         return {frozenset(v) for v in zip(*inds)}
     else:
